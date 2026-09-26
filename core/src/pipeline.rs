@@ -138,7 +138,9 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
     let video = PathBuf::from(src.video_path.clone().ok_or("no video yet")?);
     let s = lib.settings();
     set_stage(lib, &mut src, "transcribing", None);
-    let lang = src.lang_override.clone();
+    // The override wins; otherwise YouTube's declared language is a better prior
+    // than whisper's 30-second guess (a Dutch lecture opening with Qur'an comes out "ar").
+    let lang = src.lang_override.clone().or_else(|| src.language.clone().filter(|l| l.len() == 2));
     let res: Result<Transcript, String> = (|| {
         let use_captions = matches!(src.transcript_source.as_str(), "captions" | "both");
         let captions = if use_captions {

@@ -52,7 +52,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="topbar">
-        <span className="brand">Cuttar</span>
+        <button type="button" className="brand" onClick={() => go("library", { sourceId: null })} title="Library">Cuttar</button>
         <div className="tabs">
           {TABS.map(([id, label]) => (
             <button key={id} type="button" className={`tab ${nav.tab === id ? "on" : ""}`} onClick={() => go(id)}>

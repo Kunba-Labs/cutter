@@ -8,6 +8,7 @@
   --mint: #3EF2A3; --cyan: #37D2E8; --coral: #FF5C7A; --amber: #FFC24D; --violet: #B48BFF; --peach: #FF8A5C;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
 }
+@font-face { font-family: "Great Vibes"; src: url("./fonts/GreatVibes.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: block; }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 12px/1.4 -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; }
@@ -19,7 +20,8 @@ a { color: var(--accent-text); text-decoration: none; }
 .app { height: 100%; display: flex; flex-direction: column; gap: 10px; padding: 10px; }
 .topbar { height: 38px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 84px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; -webkit-app-region: drag; }
 .topbar > * { -webkit-app-region: no-drag; }
-.brand { font-size: 12.5px; font-weight: 700; }
+.brand { font-family: "Great Vibes", cursive; font-size: 24px; font-weight: 400; color: var(--accent-text); line-height: 1; margin-top: -3px; background: none; border: 0; padding: 0 4px; cursor: pointer; letter-spacing: 0.5px; }
+.brand:hover { color: var(--accent); }
 .tabs { display: flex; gap: 2px; margin-left: 6px; }
 .tab { height: 24px; padding: 0 10px; border-radius: 4px; color: var(--sec); font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; background: none; border: 0; cursor: pointer; }
 .tab.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }

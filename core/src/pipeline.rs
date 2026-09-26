@@ -121,7 +121,11 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
         src.meta["height"] = json!(probe.height);
         Ok(())
     })();
-    if let Err(e) = res {
+    if let Err(mut e) = res {
+        // A 403 on a video that lists fine is YouTube moving on from an old yt-dlp.
+        if e.contains("403") {
+            e.push_str(" — YouTube changed something; update yt-dlp (`brew upgrade yt-dlp`) and run again");
+        }
         return fail(lib, &job.ref_id, e);
     }
     set_stage(lib, &mut src, "downloaded", None);

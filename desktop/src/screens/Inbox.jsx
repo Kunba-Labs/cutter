@@ -40,14 +40,14 @@ export default function Inbox({ go, setAdding }) {
       </div>
       <div className="col grow">
         <div className="panel" style={{ flexShrink: 0, maxHeight: "55%" }}>
-          <div className="panel-head"><span>New uploads</span><span className="sub">{fresh.length}</span><span className="grow" /><Btn small onClick={() => tryAct("check_channel", ch ? { id: ch.id } : {}, "Checking")} disabled={!s.channels.length}>Check now</Btn><Btn small primary disabled={!fresh.length} onClick={() => fresh.forEach((i) => tryAct("process_inbox", { id: i.id }))}>Process all</Btn></div>
+          <div className="panel-head"><span>New uploads</span><span className="sub">{fresh.length}</span><span className="grow" /><Btn small onClick={() => tryAct("check_channel", ch ? { id: ch.id } : {}, "Checking")} disabled={!s.channels.length}>Check now</Btn><Btn small primary disabled={!fresh.length} onClick={async () => { for (const i of fresh) await tryAct("process_inbox", { id: i.id }); go("library", { sourceId: null }); }}>Process all</Btn></div>
           <div className="rows">
             {!fresh.length && <div className="empty">Nothing new{ch ? ` on ${ch.name}` : ""}.</div>}
             {fresh.map((i) => (
               <div key={i.id} className="row" style={{ gridTemplateColumns: "104px minmax(0,1fr) 200px", padding: "8px 10px", cursor: "default" }}>
                 <img className="thumb" src={`https://i.ytimg.com/vi/${i.videoId}/mqdefault.jpg`} width={104} height={58} alt="" />
                 <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}><b className="ell" style={{ fontSize: 12 }}>{i.title}</b><span className="muted">{s.channels.find((c) => c.id === i.channelId)?.name} · {i.uploadedAt ? ago(i.uploadedAt) : "date unknown"} · {fmtLong(i.duration)}</span></span>
-                <span style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}><Btn small primary onClick={() => tryAct("process_inbox", { id: i.id }, "Added to the library")}>Process</Btn><Btn small onClick={() => tryAct("skip_inbox", { id: i.id })}>Skip</Btn></span>
+                <span style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}><Btn small primary onClick={async () => { const r = await tryAct("process_inbox", { id: i.id }, "Added to the library"); if (r) go("library", { sourceId: r.id, view: "reels" }); }}>Process</Btn><Btn small onClick={() => tryAct("skip_inbox", { id: i.id })}>Skip</Btn></span>
               </div>
             ))}
           </div>

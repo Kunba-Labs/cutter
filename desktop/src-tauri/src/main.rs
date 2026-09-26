@@ -27,6 +27,10 @@ fn open_url(url: String) {
     }
 }
 
+fn ctx_identifier(dev: bool) -> String {
+    if dev { format!("{}.dev", cuttar_core::BUNDLE_ID) } else { cuttar_core::BUNDLE_ID.to_string() }
+}
+
 fn main() {
     cuttar_core::tools::inherit_login_path();
     let ctx = tauri::generate_context!();
@@ -37,7 +41,15 @@ fn main() {
             let data_dir = cuttar_core::default_data_dir(dev);
             std::fs::create_dir_all(&data_dir)?;
             let log_path = cuttar_core::applog::init(&data_dir, log::LevelFilter::Info);
-            let lib = Library::open(&data_dir, Some(cuttar_core::default_port(dev))).map_err(std::io::Error::other)?;
+            // A second copy (the port is taken) hands over to the running one instead of panicking.
+            let lib = match Library::open(&data_dir, Some(cuttar_core::default_port(dev))) {
+                Ok(l) => l,
+                Err(e) => {
+                    log::error!("{e}");
+                    let _ = std::process::Command::new("open").args(["-b", &ctx_identifier(dev)]).spawn();
+                    std::process::exit(0);
+                }
+            };
             let h = app.handle().clone();
             lib.on_change(Box::new(move || {
                 let _ = h.emit("library-changed", ());

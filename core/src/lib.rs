@@ -659,6 +659,29 @@ impl Library {
                 }
                 json!(p)
             }
+            "end_cards" => {
+                let id = id()?;
+                let p: Poster = self.get("posters", &id).ok_or("no such poster")?;
+                json!(self.enqueue("endcards", &id, &format!("{} · end cards", p.title), json!({})))
+            }
+            "use_end_cards" => {
+                // From a poster's outputs (or explicit paths) into settings, and turn the card on.
+                let mut st = self.settings();
+                let paths = if let Some(id) = s("id") {
+                    let p: Poster = self.get("posters", &id).ok_or("no such poster")?;
+                    st.end_card.poster_id = Some(id);
+                    json!({ "9x16": p.outputs["endcard-9x16"], "4x5": p.outputs["endcard-4x5"], "16x9": p.outputs["endcard-16x9"] })
+                } else {
+                    a["paths"].clone()
+                };
+                st.end_card.paths = paths;
+                st.end_card.enabled = a["enabled"].as_bool().unwrap_or(true);
+                if let Some(sec) = a["seconds"].as_f64() {
+                    st.end_card.seconds = sec;
+                }
+                self.save_settings(&st);
+                json!(st.end_card)
+            }
             "waiting_video" => {
                 let id = id()?;
                 let p: Poster = self.get("posters", &id).ok_or("no such poster")?;

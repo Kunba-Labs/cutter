@@ -58,6 +58,7 @@ fn run(lib: &Library, job: &Job) -> Result<Value, String> {
         "publish" => publish(lib, job),
         "check_channel" => check_channel(lib, job),
         "poster" => poster(lib, job),
+        "endcards" => endcards(lib, job),
         "waiting_video" => waiting_video(lib, job),
         k => Err(format!("unknown job kind {k}")),
     }
@@ -276,8 +277,10 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let mut r = Render { id: new_id("r"), candidate_id: c.id.clone(), source_id: src.id.clone(), format: format.clone(), path: out.display().to_string(), status: "rendering".into(), created_at: now(), ..Default::default() };
     lib.put("renders", &r.id, &r.created_at, &r);
     let jid = job.id.clone();
+    let card_path = s.end_card.enabled.then(|| s.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(PathBuf::from)).flatten().filter(|p| p.exists());
+    let end_card = card_path.as_deref().map(|p| (p, s.end_card.seconds.clamp(0.5, 8.0)));
     let res = ffmpeg::render(
-        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), ass: Some(&ass) },
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), ass: Some(&ass), end_card },
         |p, m| lib.job_progress(&jid, p, m),
         |pid| lib.register_child(&jid, pid),
     );
@@ -503,4 +506,29 @@ pub fn autofill(lib: &Library, days: i64) -> usize {
         }
     }
     n
+}
+
+/// Three closing cards (9:16, 4:5, 16:9) in the poster's style, then sized exactly.
+fn endcards(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut p: Poster = lib.get("posters", &job.ref_id).ok_or("poster is gone")?;
+    lib.job_progress(&job.id, 0.05, "Claude + Higgsfield are drawing the end cards");
+    let files = posters::generate_end_cards(lib, &p, |pid| lib.register_child(&job.id, pid))?;
+    lib.job_progress(&job.id, 0.85, "sizing");
+    let dir = PathBuf::from(&p.folder);
+    let mut out = json!({});
+    for (key, w, h) in [("9x16", 1080, 1920), ("4x5", 1080, 1350), ("16x9", 1920, 1080)] {
+        let Some(src) = files.get(key) else { continue };
+        let dst = dir.join(format!("endcard-{key}.png"));
+        ffmpeg::poster_pad(src, &dst, w, h)?;
+        out[format!("endcard-{key}")] = json!(dst);
+    }
+    if out.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        return Err("no end cards came back".into());
+    }
+    if !p.outputs.is_object() {
+        p.outputs = json!({});
+    }
+    crate::merge(&mut p.outputs, &out);
+    lib.save_poster(&mut p);
+    Ok(json!({ "message": format!("{} end cards", out.as_object().map(|o| o.len()).unwrap_or(0)) }))
 }

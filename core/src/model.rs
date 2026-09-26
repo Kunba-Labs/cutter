@@ -319,6 +319,18 @@ impl Default for YoutubeAuth {
     }
 }
 
+/// The closing card appended to every reel: one image per aspect.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EndCard {
+    pub enabled: bool,
+    pub seconds: f64,
+    /// "9x16" | "4x5" | "16x9" → image path
+    pub paths: Value,
+    /// The poster the set came from, for the UI.
+    pub poster_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -336,6 +348,7 @@ pub struct Settings {
     pub translate_to: String,
     pub caption_style: CaptionStyle,
     pub caption_templates: Vec<CaptionStyle>,
+    pub end_card: EndCard,
     pub formats: Vec<String>,
     pub channel_name: String,
     pub glossary: Vec<String>,
@@ -365,6 +378,7 @@ impl Default for Settings {
             translate_to: String::new(),
             caption_style: CaptionStyle::default(),
             caption_templates: caption_templates(),
+            end_card: EndCard { enabled: false, seconds: 2.5, paths: serde_json::json!({}), poster_id: None },
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
             channel_name: String::new(),
             glossary: vec!["Allah".into(), "salawat".into(), "dhikr".into(), "tafsir".into(), "sabr".into()],

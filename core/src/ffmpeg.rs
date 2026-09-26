@@ -60,6 +60,13 @@ pub struct RenderSpec<'a> {
     pub crop_x: f64,
     pub crop_y: f64,
     pub ass: Option<&'a Path>,
+    /// A still appended after the cut, for this many seconds, with a short fade.
+    pub end_card: Option<(&'a Path, f64)>,
+}
+
+/// Aspect key for the end-card set: "9x16" | "4x5" | "16x9".
+pub fn aspect_key(width: i64, height: i64) -> &'static str {
+    if width > height { "16x9" } else if (width as f64 / height as f64) > 0.7 { "4x5" } else { "9x16" }
 }
 
 /// H.264 through VideoToolbox, AAC 192k, loudness −14 LUFS. Progress from
@@ -72,14 +79,28 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
         vf.push(format!("ass='{}'", ass_path_arg(a)));
     }
     let vf = vf.join(",");
+    let total = dur + r.end_card.map(|(_, s)| s).unwrap_or(0.0);
     let mut run = |encoder: &[&str]| -> Result<(), String> {
         let mut cmd = Command::new(crate::tools::ffmpeg_bin());
-        cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error", "-ss", &format!("{:.3}", r.start), "-to", &format!("{:.3}", r.end)])
-            .arg("-i")
-            .arg(r.src)
-            .args(["-vf", &vf])
-            .args(encoder)
-            .args(["-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-movflags", "+faststart", "-progress", "pipe:1"])
+        cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error", "-ss", &format!("{:.3}", r.start), "-to", &format!("{:.3}", r.end)]).arg("-i").arg(r.src);
+        match r.end_card {
+            Some((card, secs)) => {
+                // The cut, then the card as a second clip (silent audio), joined with a fade.
+                cmd.args(["-loop", "1", "-framerate", "30", "-t", &format!("{secs:.2}")]).arg("-i").arg(card);
+                cmd.args(["-f", "lavfi", "-t", &format!("{secs:.2}"), "-i", "anullsrc=r=48000:cl=stereo"]);
+                let fc = format!(
+                    "[0:v]{vf},setsar=1,fps=30,format=yuv420p[v0];[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a0];[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps=30,format=yuv420p,fade=t=in:st=0:d=0.35[v1];[v0][a0][v1][2:a]concat=n=2:v=1:a=1[v][a]",
+                    w = r.width,
+                    h = r.height
+                );
+                cmd.args(["-filter_complex", &fc, "-map", "[v]", "-map", "[a]"]);
+            }
+            None => {
+                cmd.args(["-vf", &vf, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]);
+            }
+        }
+        cmd.args(encoder)
+            .args(["-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1"])
             .arg(r.out)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -102,7 +123,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
                     if last.elapsed().as_millis() > 400 {
                         last = std::time::Instant::now();
                         let t = v / 1_000_000.0;
-                        on_progress((t / dur).min(0.99), &format!("{} of {}", crate::model::fmt_time(t), crate::model::fmt_time(dur)));
+                        on_progress((t / total).min(0.99), &format!("{} of {}", crate::model::fmt_time(t), crate::model::fmt_time(total)));
                     }
                 }
             }

@@ -136,3 +136,36 @@ mod tests {
         assert!(ADD_QR.contains("sys.argv[3]"));
     }
 }
+
+/// End cards for the reels, drawn in this poster's style. Returns aspect key → file.
+pub fn generate_end_cards(lib: &Library, p: &Poster, on_spawn: impl FnOnce(u32)) -> Result<std::collections::HashMap<&'static str, PathBuf>, String> {
+    let s = lib.settings();
+    let dir = PathBuf::from(&p.folder);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let reference = p.chosen.as_deref().map(|c| format!("Match the palette, typography and ornament of the poster at {c} (upload it with media_upload and pass it as a style reference).")).unwrap_or_default();
+    let channel = if s.channel_name.is_empty() { "the channel".to_string() } else { s.channel_name.clone() };
+    let brief = field(p, "endCardBrief");
+    let prompt = format!(
+        r##"Make 3 closing cards for short videos with the Higgsfield MCP (generate_image_batch, model gpt_image_2_5, quality "high"): one with aspect_ratio "9:16", one "3:2" landscape (we crop it to 16:9), and one "2:3" portrait (we crop it to 4:5). Keep every important element well inside the middle 80% so cropping is safe.
+
+{reference}
+
+Content of each card, large and readable on a phone: the name "{channel}", the line "Volledige les op YouTube", and a small "abonneer" hint. No QR code, no date, no programme lines. Flat, calm, no photos of people.
+{brief}
+
+Download the results with curl into this folder as endcard-9x16-src.png, endcard-16x9-src.png and endcard-4x5-src.png:
+{dir}
+
+Finish with the word DONE."##,
+        dir = dir.display()
+    );
+    let _ = crate::brain::ask(&Settings { brain: "claude".into(), ..s.clone() }, &prompt, Duration::from_secs(20 * 60), on_spawn)?;
+    let mut out = std::collections::HashMap::new();
+    for key in ["9x16", "16x9", "4x5"] {
+        let f = dir.join(format!("endcard-{key}-src.png"));
+        if f.exists() {
+            out.insert(match key { "9x16" => "9x16", "16x9" => "16x9", _ => "4x5" }, f);
+        }
+    }
+    Ok(out)
+}

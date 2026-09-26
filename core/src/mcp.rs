@@ -69,6 +69,8 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("add_poster_variant", "Add an image file as a variant; the QR is pasted in if a link is set.", r#"{"id":{"type":"string"},"path":{"type":"string"}}"#, "id,path", "add_variant"),
     ("choose_variant", "Pick the variant to export.", r#"{"id":{"type":"string"},"path":{"type":"string"}}"#, "id,path", "choose_variant"),
     ("export_poster", "Print PNG, 1600 px JPEG, feed 4:5 and story 9:16 of the chosen variant. palette = a few words to remember, so the next run avoids it.", r#"{"id":{"type":"string"},"palette":{"type":"string"}}"#, "id", "export_poster"),
+    ("end_cards", "Draw the reel end cards (9:16, 4:5, 16:9) in a poster's style (a job).", r#"{"id":{"type":"string"}}"#, "id", "end_cards"),
+    ("use_end_cards", "Use a poster's end cards on every render: enabled, seconds.", r#"{"id":{"type":"string"},"enabled":{"type":"boolean"},"seconds":{"type":"number"}}"#, "id", "use_end_cards"),
     ("waiting_video", "Render the 'starting soon' loops (16:9 and 9:16) plus break/ended stills from the chosen poster. startAt RFC 3339 for the countdown.", r#"{"id":{"type":"string"},"startAt":{"type":"string"},"lines":{"type":"array","items":{"type":"string"}},"loopS":{"type":"integer"},"countdown":{"type":"boolean"}}"#, "id", "waiting_video"),
     ("settings", "Read settings, or change them with patch.", r#"{"patch":{"type":"object"}}"#, "", "settings"),
     ("dispatch", "Escape hatch: any core action by name with raw args (see the app's action list).", r#"{"action":{"type":"string"},"args":{"type":"object"}}"#, "action", "*"),

@@ -19,6 +19,8 @@ export default function Reels({ nav, go }) {
   const [detail, setDetail] = useState(null);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [hold, setHold] = useState(false);
+  const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
   const video = useRef(null);
 
   useEffect(() => { if (sourceId) act("source", { id: sourceId }).then(setDetail).catch(() => setDetail(null)); }, [sourceId, x?.updatedAt]);
@@ -27,7 +29,19 @@ export default function Reels({ nav, go }) {
     let raf;
     const tick = () => {
       const v = video.current;
-      if (v && c) { setT(v.currentTime); if (!v.paused && v.currentTime >= c.end) { v.currentTime = c.start; } }
+      if (v && c) {
+        setT(v.currentTime);
+        if (!v.paused && v.currentTime >= c.end) {
+          const ec = s.settings.endCard;
+          if (ec?.enabled && ec.paths?.[aspectKey]) {
+            // Hold the closing card for its duration, then loop.
+            v.pause(); setHold(true);
+            setTimeout(() => { setHold(false); v.currentTime = c.start; v.play(); }, (ec.seconds || 2.5) * 1000);
+          } else {
+            v.currentTime = c.start;
+          }
+        }
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -135,6 +149,7 @@ export default function Reels({ nav, go }) {
           <div className="stage" ref={stageRef}>
             <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
+              {hold && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {tpl.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 17 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
               {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="drag up or down to move the captions"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}

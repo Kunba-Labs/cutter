@@ -52,6 +52,7 @@ export default function Reels({ nav, go }) {
   const segs = detail?.transcript?.segments || [];
   const patch = (p) => tryAct("update_candidate", { id: c.id, patch: p });
   const tpl = (s.settings.captionTemplates || []).find((x) => x.name === c.style) || s.settings.captionStyle || {};
+  const hookTpl = (s.settings.captionTemplates || []).find((x) => x.name === c.hookStyle) || tpl;
   const toggle = () => { const v = video.current; if (!v) return; if (v.paused) { if (v.currentTime < c.start || v.currentTime > c.end) v.currentTime = c.start; v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); } };
   const seek = (time) => { if (video.current) video.current.currentTime = Math.min(c.end, Math.max(c.start, time)); };
   const [aw, ah] = SPECS[format] || [9, 16];
@@ -71,19 +72,22 @@ export default function Reels({ nav, go }) {
   const srcAspect = (x.meta?.width || 1920) / (x.meta?.height || 1080);
   const vidW = frameH * srcAspect;
   const [drag, setDrag] = useState(null); // { startX, startY, x, y } while the crop window is being dragged
-  const cx = drag ? drag.x : c.crop?.x ?? 0.5;
-  const cy = drag ? drag.y : c.crop?.y ?? 0.5;
+  // What was just dragged stays put until the core has saved it (the snapshot lags a beat).
+  const [pending, setPending] = useState(null);
+  useEffect(() => { setPending(null); }, [c.crop?.x, c.crop?.y, c.captionPct, c.id]);
+  const cx = drag ? drag.x : pending?.x ?? c.crop?.x ?? 0.5;
+  const cy = drag ? drag.y : pending?.y ?? c.crop?.y ?? 0.5;
   const left = Math.min(0, Math.max(frameW - vidW, frameW / 2 - cx * vidW));
   // Drag the picture inside the frame to move the crop: dragging left shows more of the right side.
   const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ startX: e.clientX, startY: e.clientY, x: cx, y: cy, moved: false }); };
-  const onMove = (e) => { if (!drag) return; const dx = (e.clientX - drag.startX) / vidW; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x - dx)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 }); };
-  const onUp = () => { if (!drag) return; if (drag.moved) patch({ crop: { ...(c.crop || {}), x: +drag.x.toFixed(3), y: +drag.y.toFixed(3) } }); else toggle(); setDrag(null); };
+  const onMove = (e) => { if (!drag) return; e.preventDefault(); const dx = (e.clientX - drag.startX) / vidW; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x - dx)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 }); };
+  const onUp = () => { if (!drag) return; if (drag.moved) { setPending((p) => ({ ...(p || {}), x: drag.x, y: drag.y })); patch({ crop: { ...(c.crop || {}), x: +drag.x.toFixed(3), y: +drag.y.toFixed(3) } }); } else toggle(); setDrag(null); };
   // Drag the caption block up or down: a per-reel position, the template's otherwise.
   const [capDrag, setCapDrag] = useState(null);
-  const capPct = capDrag?.pct ?? c.captionPct ?? tpl.positionPct ?? 26;
+  const capPct = capDrag?.pct ?? pending?.cap ?? c.captionPct ?? tpl.positionPct ?? 26;
   const onCapDown = (e) => { e.stopPropagation(); e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setCapDrag({ y0: e.clientY, h: frameH, pct0: capPct, pct: capPct, moved: false }); };
   const onCapMove = (e) => { if (!capDrag) return; e.stopPropagation(); const pct = Math.round(Math.min(70, Math.max(4, capDrag.pct0 + ((capDrag.y0 - e.clientY) / capDrag.h) * 100))); setCapDrag({ ...capDrag, pct, moved: true }); };
-  const onCapUp = (e) => { if (!capDrag) return; e.stopPropagation(); if (capDrag.moved) patch({ captionPct: capDrag.pct }); setCapDrag(null); };
+  const onCapUp = (e) => { if (!capDrag) return; e.stopPropagation(); if (capDrag.moved) { setPending((p) => ({ ...(p || {}), cap: capDrag.pct })); patch({ captionPct: capDrag.pct }); } setCapDrag(null); };
   // Caption preview: the words of the current segment, current word highlighted.
   const cur = segs.find((g) => t >= g.start && t < g.end);
   const words = !cur ? [] : cur.words?.length ? cur.words : cur.text.split(" ").map((w, i, a) => ({ w, s: cur.start + ((cur.end - cur.start) * i) / a.length, e: cur.start + ((cur.end - cur.start) * (i + 1)) / a.length }));
@@ -155,21 +159,33 @@ export default function Reels({ nav, go }) {
         </Panel>
       </div>
 
-      <div className="panel" style={{ width: 320, flexShrink: 0 }}>
-        <div className="panel-head"><span className="grow">Reel</span><span className="score">score {c.score}</span><Cat id={c.category} style={{ color: "var(--sec)" }} /><select className="input" style={{ width: 100, height: 20, fontSize: 12.5 }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{CAT_NAMES[k]}</option>)}</select></div>
-        <div className="panel-body">
-          <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
-          <Field label="On-screen hook · first 2.5 s"><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
-          {c.why && <Field label="Why Claude picked it"><span style={{ color: "var(--text-2)", lineHeight: 1.45, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "6px 8px", fontSize: 13.5 }}>{c.why}</span></Field>}
-          <Field label="Caption"><Text area rows={3} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
-          <Field label="Hashtags"><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
-          <div className="grid2">
-            <Field label={<span>Caption style · <a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></span>}><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default ({s.settings.captionStyle?.name})</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
-            <Field label="Score"><input className="input" type="number" min="1" max="10" value={c.score} onChange={(e) => patch({ score: +e.target.value })} /></Field>
+      <div className="panel" style={{ width: 340, flexShrink: 0 }}>
+        <div className="panel-head"><span>Reel</span><span className="grow" /><Cat id={c.category} style={{ color: "var(--sec)" }} /><select className="input" style={{ width: 110, height: 22, fontSize: 12, padding: "0 6px" }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{CAT_NAMES[k]}</option>)}</select><span className="score" style={{ height: 22 }}>score <input type="number" min="1" max="10" value={c.score} onChange={(e) => patch({ score: +e.target.value })} style={{ width: 28, background: "none", border: 0, color: "inherit", font: "inherit", textAlign: "center", padding: 0, marginLeft: 4 }} /></span></div>
+        <div className="panel-body" style={{ gap: 12 }}>
+          {c.why && <span className="muted" style={{ lineHeight: 1.45, fontStyle: "italic" }}>{c.why}</span>}
+          <div className="insp-group">
+            <div className="insp-head">Text</div>
+            <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
+            <Field label={`Title on the video · first ${(hookTpl.hookSeconds || 2.5)} s`}><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, borderTop: "1px solid var(--rule)", paddingTop: 8 }}>
-            <span className="label">Render as {c.formats?.length ? "" : "(default from settings)"}</span>
-            {FORMATS.map(([v, l]) => <Check key={v} label={l} checked={(c.formats?.length ? c.formats : s.settings.formats || []).includes(v)} onChange={(on) => { const cur = c.formats?.length ? c.formats : s.settings.formats || []; patch({ formats: on ? [...new Set([...cur, v])] : cur.filter((f) => f !== v) }); }} />)}
+          <div className="insp-group">
+            <div className="insp-head">Look<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></div>
+            <div className="grid2">
+              <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
+              <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
+            </div>
+            <span className="hint">Drag the captions or the picture in the preview to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a></>}</span>
+          </div>
+          <div className="insp-group">
+            <div className="insp-head">Post</div>
+            <Field label="Caption"><Text area rows={4} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
+            <Field label={`Hashtags · ${(c.hashtags || []).length}`}><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
+          </div>
+          <div className="insp-group">
+            <div className="insp-head">Render as<span className="grow" /><span className="muted" style={{ fontWeight: 400 }}>{c.formats?.length ? "this reel" : "library default"}</span></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+              {FORMATS.map(([v, l]) => <Check key={v} label={l} checked={(c.formats?.length ? c.formats : s.settings.formats || []).includes(v)} onChange={(on) => { const cur = c.formats?.length ? c.formats : s.settings.formats || []; patch({ formats: on ? [...new Set([...cur, v])] : cur.filter((f) => f !== v) }); }} />)}
+            </div>
           </div>
         </div>
         <span className="grow" />

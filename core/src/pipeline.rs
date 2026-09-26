@@ -253,6 +253,20 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     if let Some(p) = c.caption_pct {
         style.position_pct = p.clamp(4, 70);
     }
+    // The title can borrow its look from another template.
+    if let Some(h) = c.hook_style.as_deref().and_then(|name| s.caption_templates.iter().find(|t| t.name == name)) {
+        style.hook_font = h.hook_font.clone();
+        style.hook_size = h.hook_size;
+        style.hook_color = h.hook_color.clone();
+        style.hook_boxed = h.hook_boxed;
+        style.hook_box_color = h.hook_box_color.clone();
+        style.hook_uppercase = h.hook_uppercase;
+        style.hook_bold = h.hook_bold;
+        style.hook_italic = h.hook_italic;
+        style.hook_pct = h.hook_pct;
+        style.hook_seconds = h.hook_seconds;
+        style.hook = h.hook;
+    }
     let ass = dir.join(format!("{format}.ass"));
     // One caption language: the translation when one is chosen and this reel has it, else the spoken words.
     // The language decides font and size (RTL scripts), so it must match what is actually drawn.

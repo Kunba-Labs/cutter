@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, CATS, FORMATS } from "../store.js";
 import { Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES } from "../ui.jsx";
-import { captionCss } from "./Style.jsx";
+import { captionCss, hookCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
 
@@ -150,7 +150,7 @@ export default function Reels({ nav, go }) {
             <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
               {hold && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
-              {tpl.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 17 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
+              {hookTpl.hook !== false && c.hook && t - c.start < (hookTpl.hookSeconds || 2.5) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="drag up or down to move the captions"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>

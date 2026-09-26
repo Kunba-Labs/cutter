@@ -123,7 +123,7 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 .transcript-line .t { color: var(--muted); font-variant-numeric: tabular-nums; } .transcript-line.on .t { color: var(--accent-text); }
 .transcript-line mark { background: var(--accent); color: var(--on-accent); padding: 0 3px; border-radius: 2px; }
 .cands { display: flex; flex-direction: column; overflow: auto; }
-.cand { display: grid; grid-template-columns: 16px 26px minmax(0, 1fr) 44px; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--head); font-size: 13.5px; cursor: pointer; }
+.cand { display: grid; grid-template-columns: 16px 28px minmax(0, 1fr) 110px; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--head); font-size: 13.5px; cursor: pointer; }
 .cand:hover { background: var(--head); } .cand.on { background: var(--sel); } .cand.off { opacity: .45; }
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); flex-grow: 1; min-height: 0; overflow: auto; }
 .day { display: flex; flex-direction: column; border-right: 1px solid var(--head); min-width: 0; }

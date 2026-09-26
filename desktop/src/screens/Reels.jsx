@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, CATS, FORMATS } from "../store.js";
-import { Panel, Btn, Seg, Field, Check, Text, I } from "../ui.jsx";
+import { Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES } from "../ui.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
 
@@ -96,15 +96,15 @@ export default function Reels({ nav, go }) {
         <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--rule)", display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 60 }}>Source</span><select className="input" style={{ height: 22 }} value={sourceId} onChange={(e) => { go("reels", { sourceId: e.target.value }); setSelId(null); }}>{sources.map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}</select></div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 60 }}>Min score</span><input type="range" className="slider" min="0" max="10" value={minScore} onChange={(e) => setMinScore(+e.target.value)} /><span style={{ width: 16 }}>{minScore}</span></div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>{CATS.map((k) => { const n = cands.filter((v) => v.category === k).length; return n ? <span key={k} className={`chip ${k}`}>{k} {n}</span> : null; })}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, color: "var(--sec)" }}>{CATS.map((k) => { const n = cands.filter((v) => v.category === k).length; return n ? <span key={k} style={{ display: "flex", alignItems: "center", gap: 4 }} title={CAT_NAMES[k]}><Cat id={k} /><span className="num">{n}</span></span> : null; })}</div>
         </div>
         <div className="cands">
           {cands.filter((v) => v.score >= minScore).map((v) => (
-            <div key={v.id} className={`cand ${v.id === c.id ? "on" : ""} ${v.discarded ? "off" : ""}`} onClick={() => setSelId(v.id)}>
+            <div key={v.id} className={`cand ${v.id === c.id ? "on" : ""} ${v.discarded ? "off" : ""}`} onClick={() => setSelId(v.id)} title={`${CAT_NAMES[v.category] || v.category} · ${v.why || ""}`}>
               <input type="checkbox" checked={v.approved} onChange={(e) => tryAct("approve", { ids: [v.id], approved: e.target.checked })} onClick={(e) => e.stopPropagation()} style={{ accentColor: "var(--accent)", margin: 0 }} />
               <span className="score">{v.score}</span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}><span className="ell">{v.title || "(untitled)"}</span><span className={`${v.category}`} style={{ fontSize: 12.5, color: `var(--${{ fact: "cyan", statement: "amber", hook: "accent-text", story: "violet", dua: "mint", reminder: "sec", qa: "peach" }[v.category] || "sec"})` }}>{v.category}{s.renders.some((r) => r.candidateId === v.id && r.status === "done") ? " · rendered" : ""}</span></span>
-              <span className="muted num" style={{ textAlign: "right" }}>{(v.end - v.start).toFixed(1)} s</span>
+              <span className="ell">{v.title || "(untitled)"}</span>
+              <span className="muted" style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}><Cat id={v.category} />{s.renders.some((r) => r.candidateId === v.id && r.status === "done") && <span className="dot mint" title="rendered" />}<span className="num" style={{ width: 44, textAlign: "right" }}>{(v.end - v.start).toFixed(1)} s</span></span>
             </div>
           ))}
         </div>
@@ -146,7 +146,7 @@ export default function Reels({ nav, go }) {
       </div>
 
       <div className="panel" style={{ width: 320, flexShrink: 0 }}>
-        <div className="panel-head"><span className="grow">Reel</span><span className="score">score {c.score}</span><select className="input" style={{ width: 100, height: 20, fontSize: 12.5 }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
+        <div className="panel-head"><span className="grow">Reel</span><span className="score">score {c.score}</span><Cat id={c.category} style={{ color: "var(--sec)" }} /><select className="input" style={{ width: 100, height: 20, fontSize: 12.5 }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{CAT_NAMES[k]}</option>)}</select></div>
         <div className="panel-body">
           <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
           <Field label="On-screen hook · first 2.5 s"><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>

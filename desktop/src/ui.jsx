@@ -91,3 +91,18 @@ export const Confirm = ({ text, yes = "Discard", no = "Keep editing", onYes, onN
     </div>
   </div>
 );
+
+/* Category marks: monochrome line icons, no coloured words. */
+const catPaths = {
+  fact: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></>,
+  statement: <><path d="M9 7H5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h3v3l3-3V8a1 1 0 0 0-1-1zM20 7h-4a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h3v3l3-3V8a1 1 0 0 0-1-1z" /></>,
+  hook: <><path d="M12 3v11a4 4 0 0 0 8 0v-1M12 3a2 2 0 1 0 0 .01" /></>,
+  story: <><path d="M4 5a2 2 0 0 1 2-2h6v16H6a2 2 0 0 0-2 2zM12 3h6a2 2 0 0 1 2 2v16a2 2 0 0 0-2-2h-6z" /></>,
+  dua: <><path d="M7 20V9a2 2 0 0 1 4 0v5M17 20V9a2 2 0 0 0-4 0v5M7 20a3 3 0 0 0 10 0" /></>,
+  reminder: <><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0" /></>,
+  qa: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17v.5" /></>,
+};
+export const CAT_NAMES = { fact: "Fact", statement: "Statement", hook: "Hook", story: "Story", dua: "Du'a", reminder: "Reminder", qa: "Q&A" };
+export const Cat = ({ id, size = 14, style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, ...style }} aria-label={CAT_NAMES[id] || id}><title>{CAT_NAMES[id] || id}</title>{catPaths[id] || catPaths.statement}</svg>
+);

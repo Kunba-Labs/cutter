@@ -90,15 +90,19 @@ export default function Reels({ nav, go }) {
   const [drag, setDrag] = useState(null); // { startX, startY, x, y } while the crop window is being dragged
   // What was just dragged stays put until the core has saved it (the snapshot lags a beat).
   const [pending, setPending] = useState(null);
-  useEffect(() => { setPending(null); }, [c.crop?.x, c.crop?.y, c.captionPct, c.id]);
+  useEffect(() => { setPending(null); }, [c.crop?.x, c.crop?.y, c.crop?.z, c.captionPct, c.id]);
   const cx = drag ? drag.x : pending?.x ?? c.crop?.x ?? 0.5;
   const cy = drag ? drag.y : pending?.y ?? c.crop?.y ?? 0.5;
-  const left = Math.min(0, Math.max(frameW - vidW, frameW / 2 - cx * vidW));
-  // Drag the picture inside the frame to move the crop: dragging left shows more of the right side.
-  const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ startX: e.clientX, startY: e.clientY, x0: cx, x: cx, y: cy, moved: false }); };
-  // The picture follows the pointer one to one: the new centre is the grab-time centre minus the distance moved.
-  const onMove = (e) => { if (!drag) return; e.preventDefault(); const dx = (e.clientX - drag.startX) / vidW; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x0 - dx)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 }); };
+  const cz = pending?.z ?? c.crop?.z ?? 1;
+  // The picture is scaled so the crop window (frame) shows 1/cz of the largest fitting window.
+  const zoomW = vidW * cz, zoomH = frameH * cz;
+  const left = Math.min(0, Math.max(frameW - zoomW, frameW / 2 - cx * zoomW));
+  const top = Math.min(0, Math.max(frameH - zoomH, frameH / 2 - cy * zoomH));
+  // Drag the picture inside the frame to move the crop, one to one from the grab point, both axes.
+  const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ startX: e.clientX, startY: e.clientY, x0: cx, y0: cy, x: cx, y: cy, moved: false }); };
+  const onMove = (e) => { if (!drag) return; e.preventDefault(); const dx = (e.clientX - drag.startX) / zoomW; const dy = (e.clientY - drag.startY) / zoomH; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x0 - dx)), y: Math.min(1, Math.max(0, drag.y0 - dy)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 || Math.abs(e.clientY - drag.startY) > 3 }); };
   const onUp = () => { if (!drag) return; if (drag.moved) { setPending((p) => ({ ...(p || {}), x: drag.x, y: drag.y })); patch({ crop: { ...(c.crop || {}), x: +drag.x.toFixed(3), y: +drag.y.toFixed(3) } }); } else toggle(); setDrag(null); };
+  const setZoom = (z) => { setPending((p) => ({ ...(p || {}), z })); patch({ crop: { ...(c.crop || {}), x: cx, y: cy, z: +z.toFixed(2) } }); };
   // Drag the caption block up or down: a per-reel position, the template's otherwise.
   const [capDrag, setCapDrag] = useState(null);
   const capPct = capDrag?.pct ?? pending?.cap ?? c.captionPct ?? tpl.positionPct ?? 26;
@@ -148,10 +152,10 @@ export default function Reels({ nav, go }) {
 
       <div className="col grow">
         <div className="panel grow">
-          <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><span className="sub">crop</span><input type="range" className="slider" style={{ width: 120 }} min="0" max="1" step="0.01" value={cx} onChange={(e) => patch({ crop: { ...(c.crop || {}), x: +e.target.value } })} title="Horizontal crop position" /></div>
+          <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><span className="sub">zoom</span><input type="range" className="slider" style={{ width: 120 }} min="1" max="2.5" step="0.05" value={cz} onChange={(e) => setZoom(+e.target.value)} title="Zoom the crop window" /><span className="num sub" style={{ width: 36 }}>{cz.toFixed(2)}×</span></div>
           <div className="stage" ref={stageRef}>
-            <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-              {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
+            <div className="frame" style={{ width: frameW, height: frameH, cursor: zoomW > frameW + 1 || zoomH > frameH + 1 ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+              {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, top, width: zoomW, height: zoomH, pointerEvents: "none" }} muted={false} />}
               {hold && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {hookTpl.hook !== false && c.hook && t - c.start < (hookTpl.hookSeconds || 2.5) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="drag up or down to move the captions"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
@@ -192,7 +196,7 @@ export default function Reels({ nav, go }) {
               <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
               <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
             </div>
-            <span className="hint">Drag the captions or the picture in the preview to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 && <> Crop at {Math.round((c.crop?.x ?? 0.5) * 100)}% · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5 })); patch({ crop: { x: 0.5, y: 0.5 } }); }}>centre</a>.</>}</span>
+            <span className="hint">Drag the captions or the picture in the preview to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "8px 10px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}><b style={{ fontSize: 13 }}>Apply to the queue</b><span className="grow" /><Seg value={applyScope} onChange={setApplyScope} options={[["source", "This lecture"], ["approved", "Approved"], ["library", "Everything"]]} /></div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>

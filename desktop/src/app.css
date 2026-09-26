@@ -57,7 +57,7 @@ a { color: var(--accent-text); text-decoration: none; }
 .btn.danger { background: #3B1F2A; border-color: #3B1F2A; color: #FF8AA0; }
 .btn.icon { width: 26px; padding: 0; justify-content: center; } .btn.small.icon { width: 20px; }
 .seg { display: flex; gap: 2px; background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 2px; width: fit-content; }
-.seg button { height: 20px; padding: 0 8px; border-radius: 3px; border: 0; background: none; color: var(--sec); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.seg button { height: 20px; padding: 0 8px; white-space: nowrap; border-radius: 3px; border: 0; background: none; color: var(--sec); font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .seg button.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
 .seg.big button { height: 22px; font-size: 13.5px; padding: 0 12px; }
 .field { display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }

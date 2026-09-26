@@ -198,11 +198,12 @@ export default function Reels({ nav, go }) {
             </div>
             <span className="hint">Drag the captions or the picture in the preview to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "8px 10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><b style={{ fontSize: 13 }}>Apply to the queue</b><span className="grow" /><Seg value={applyScope} onChange={setApplyScope} options={[["source", "This lecture"], ["approved", "Approved"], ["library", "Everything"]]} /></div>
+              <b style={{ fontSize: 13 }}>Apply to the queue</b>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>Scope</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
                 {[["style", "Captions template"], ["hookStyle", "Title template"], ["captionPct", "Caption position"], ["crop", "Crop"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
               </div>
-              <Btn small primary disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Applied to ${n} reels`); }}>Apply to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
+              <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Applied to ${n} reels`); }}>Apply to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
             </div>
           </div>
           <div className="insp-group">

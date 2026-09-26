@@ -51,6 +51,7 @@ export default function Reels({ nav, go }) {
 
   const segs = detail?.transcript?.segments || [];
   const patch = (p) => tryAct("update_candidate", { id: c.id, patch: p });
+  const tpl = (s.settings.captionTemplates || []).find((x) => x.name === c.style) || s.settings.captionStyle || {};
   const toggle = () => { const v = video.current; if (!v) return; if (v.paused) { if (v.currentTime < c.start || v.currentTime > c.end) v.currentTime = c.start; v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); } };
   const seek = (time) => { if (video.current) video.current.currentTime = Math.min(c.end, Math.max(c.start, time)); };
   const [aw, ah] = SPECS[format] || [9, 16];
@@ -77,10 +78,15 @@ export default function Reels({ nav, go }) {
   const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); setDrag({ startX: e.clientX, startY: e.clientY, x: cx, y: cy, moved: false }); };
   const onMove = (e) => { if (!drag) return; const dx = (e.clientX - drag.startX) / vidW; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x - dx)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 }); };
   const onUp = () => { if (!drag) return; if (drag.moved) patch({ crop: { ...(c.crop || {}), x: +drag.x.toFixed(3), y: +drag.y.toFixed(3) } }); else toggle(); setDrag(null); };
+  // Drag the caption block up or down: a per-reel position, the template's otherwise.
+  const [capDrag, setCapDrag] = useState(null);
+  const capPct = capDrag?.pct ?? c.captionPct ?? tpl.positionPct ?? 26;
+  const onCapDown = (e) => { e.stopPropagation(); e.preventDefault(); const r = e.currentTarget.parentElement.getBoundingClientRect(); setCapDrag({ bottom: r.bottom, h: r.height, pct: capPct, moved: false }); };
+  const onCapMove = (e) => { if (!capDrag) return; e.stopPropagation(); const pct = Math.round(Math.min(70, Math.max(4, ((capDrag.bottom - e.clientY) / capDrag.h) * 100 - 4))); setCapDrag({ ...capDrag, pct, moved: true }); };
+  const onCapUp = (e) => { if (!capDrag) return; e.stopPropagation(); if (capDrag.moved) patch({ captionPct: capDrag.pct }); setCapDrag(null); };
   // Caption preview: the words of the current segment, current word highlighted.
   const cur = segs.find((g) => t >= g.start && t < g.end);
   const words = !cur ? [] : cur.words?.length ? cur.words : cur.text.split(" ").map((w, i, a) => ({ w, s: cur.start + ((cur.end - cur.start) * i) / a.length, e: cur.start + ((cur.end - cur.start) * (i + 1)) / a.length }));
-  const tpl = (s.settings.captionTemplates || []).find((x) => x.name === c.style) || s.settings.captionStyle || {};
   const per = tpl.wordsPerLine || 4;
   const wi = words.findIndex((w) => t >= w.s && t < w.e);
   const line = wi >= 0 ? words.slice(Math.floor(wi / per) * per, Math.floor(wi / per) * per + per) : [];
@@ -126,7 +132,7 @@ export default function Reels({ nav, go }) {
             <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
               {tpl.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 17 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
-              {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * ((tpl.positionPct || 26) / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center" }}><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
+              {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerLeave={onCapUp} title="drag up or down to move the captions"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
@@ -136,7 +142,7 @@ export default function Reels({ nav, go }) {
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.max(0, i - 1)]?.id); }} aria-label="Previous">{I.prev}</Btn>
             <Btn icon primary onClick={toggle} aria-label="Play">{playing ? I.pause : I.play}</Btn>
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }} aria-label="Next">{I.next}</Btn>
-            <span className="muted">loops the reel · drag the picture to move the crop</span><span className="grow" /><span className="muted">space play · ↑↓ candidates · [ ] set in/out at playhead · a tick</span>
+            <span className="muted">loops the reel · drag the picture to move the crop · drag the captions to move them{c.captionPct != null && <> · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset caption position</a></>}</span><span className="grow" /><span className="muted">space play · ↑↓ candidates · [ ] set in/out at playhead · a tick</span>
           </div>
         </div>
         <Panel title="Trim" sub={`in ${fmt(c.start)} · out ${fmt(c.end)} · ${dur.toFixed(1)} s`} right={<><Btn small onClick={snapEnd}>Snap out to sentence</Btn><Btn small onClick={() => patch({ start: Math.max(0, t) })}>In = playhead</Btn><Btn small onClick={() => patch({ end: Math.max(c.start + 3, t) })}>Out = playhead</Btn></>} style={{ height: 150, flexShrink: 0 }}>

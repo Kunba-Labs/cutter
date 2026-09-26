@@ -117,6 +117,8 @@ pub struct Candidate {
     /// {"x": 0.5} — horizontal centre of the vertical crop as a fraction.
     pub crop: Value,
     pub style: Option<String>,
+    /// Caption distance from the bottom (% of height) for this reel, else the template's.
+    pub caption_pct: Option<i64>,
     /// Override of settings.formats, or empty for the default.
     pub formats: Vec<String>,
     pub position: i64,

@@ -35,6 +35,7 @@ export default function Style({ nav, go }) {
   const s = useStore();
   const templates = s.settings.captionTemplates || [];
   const [selName, setSelName] = useState(s.settings.captionStyle?.name || templates[0]?.name);
+  const [drag, setDrag] = useState(null);
   const idx = Math.max(0, templates.findIndex((t) => t.name === selName));
   const t = templates[idx] || templates[0];
   const src = s.sources.find((x) => x.id === nav.sourceId) || s.sources.find((x) => x.thumbPath);
@@ -70,11 +71,11 @@ export default function Style({ nav, go }) {
           <div className="frame" style={{ width: frameW, height: frameH, background: "#22263A" }}>
             {src?.thumbPath && <img src={fileUrl(src.thumbPath)} alt="" style={{ position: "absolute", top: 0, left: "50%", height: "100%", transform: "translateX(-50%)", opacity: 0.9 }} />}
             {t.hook && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 16 * k }}>Sabr ≠ wachten</span></div>}
-            <div className="cap" style={{ bottom: frameH * (t.positionPct / 100) - 10, alignItems: t.align === "left" ? "flex-start" : "center" }}><span style={{ ...captionCss(t, k), fontSize: t.size * (frameH / 1920) }}>{SAMPLE.slice(0, Math.max(1, t.wordsPerLine)).map((wd, i) => <span key={i} style={i === 2 && t.highlight.toLowerCase() !== t.textColor.toLowerCase() ? { color: t.highlight } : undefined}>{wd} </span>)}</span></div>
+            <div className="cap" style={{ bottom: frameH * ((drag?.pct ?? t.positionPct) / 100) - 10, alignItems: t.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: drag ? "grabbing" : "ns-resize" }} onPointerDown={(e) => { e.preventDefault(); const r = e.currentTarget.parentElement.getBoundingClientRect(); setDrag({ bottom: r.bottom, h: r.height, pct: t.positionPct }); }} onPointerMove={(e) => { if (!drag) return; setDrag({ ...drag, pct: Math.round(Math.min(70, Math.max(4, ((drag.bottom - e.clientY) / drag.h) * 100 - 4))) }); }} onPointerUp={() => { if (!drag) return; if (drag.pct !== t.positionPct) patch({ positionPct: drag.pct }); setDrag(null); }} onPointerLeave={() => { if (drag) { if (drag.pct !== t.positionPct) patch({ positionPct: drag.pct }); setDrag(null); } }} title="drag up or down"><span style={{ ...captionCss(t, k), fontSize: t.size * (frameH / 1920) }}>{SAMPLE.slice(0, Math.max(1, t.wordsPerLine)).map((wd, i) => <span key={i} style={i === 2 && t.highlight.toLowerCase() !== t.textColor.toLowerCase() ? { color: t.highlight } : undefined}>{wd} </span>)}</span></div>
             {t.watermark && s.settings.channelName && <div style={{ position: "absolute", left: 12, bottom: 12, fontSize: 11 * k, fontWeight: 700, color: "#fff", textShadow: "0 1px 3px #000" }}>{s.settings.channelName}</div>}
           </div>
         </div>
-        <div className="transport"><span className="muted">Sample line with the third word highlighted. The render uses the same settings through libass.</span></div>
+        <div className="transport"><span className="muted">Sample line with the third word highlighted; drag it to set the position. Long lines wrap within the side margins, in the render too.</span></div>
       </div>
 
       <div className="panel" style={{ width: 340, flexShrink: 0 }}>
@@ -82,8 +83,8 @@ export default function Style({ nav, go }) {
         <div className="panel-body" style={{ gap: 10 }}>
           <Row label="Name"><Text value={t.name} onCommit={(v) => { const n = v.trim() || t.name; patch({ name: n }); setSelName(n); }} /></Row>
           <Row label="Font"><select className="input" value={t.font} onChange={(e) => patch({ font: e.target.value })}>{["Helvetica Neue", "Arial Black", "Avenir Next Condensed", "Futura", "Impact", "SF Pro Rounded", "Georgia", "Menlo", "Geeza Pro"].map((f) => <option key={f} value={f}>{f}</option>)}</select></Row>
-          <Row label="Size"><input type="range" className="slider" min="24" max="80" value={t.size} onChange={(e) => patch({ size: +e.target.value })} /><span className="num" style={{ width: 34 }}>{t.size}</span></Row>
-          <Row label="From bottom"><input type="range" className="slider" min="6" max="60" value={t.positionPct} onChange={(e) => patch({ positionPct: +e.target.value })} /><span className="num" style={{ width: 34 }}>{t.positionPct}%</span></Row>
+          <Row label="Size"><input type="range" className="slider" min="24" max="96" value={t.size} onChange={(e) => patch({ size: +e.target.value })} /><input className="input num" type="number" min="16" max="140" style={{ width: 64 }} value={t.size} onChange={(e) => patch({ size: +e.target.value || t.size })} /><span className="muted">px of 1920</span></Row>
+          <Row label="From bottom"><input type="range" className="slider" min="4" max="70" value={t.positionPct} onChange={(e) => patch({ positionPct: +e.target.value })} /><input className="input num" type="number" min="4" max="70" style={{ width: 64 }} value={t.positionPct} onChange={(e) => patch({ positionPct: +e.target.value || t.positionPct })} /><span className="muted">%</span></Row>
           <Row label="Words per line"><input type="range" className="slider" min="1" max="8" value={t.wordsPerLine} onChange={(e) => patch({ wordsPerLine: +e.target.value })} /><span className="num" style={{ width: 34 }}>{t.wordsPerLine}</span></Row>
           <Row label="Text"><Swatches value={t.textColor} onPick={(c) => patch({ textColor: c })} /></Row>
           <Row label="Highlight"><Swatches value={t.highlight} onPick={(c) => patch({ highlight: c })} /></Row>

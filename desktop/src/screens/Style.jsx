@@ -19,6 +19,26 @@ export function captionCss(t, k = 1) {
   };
 }
 
+/* The title at the top, from the same template. */
+export function hookCss(t, k = 1) {
+  const bg = t.hookBoxed ? t.hookBoxColor || "#000000" : "none";
+  return {
+    fontFamily: `"${t.hookFont || t.font}", "Helvetica Neue", sans-serif`,
+    fontSize: (t.hookSize || 40) * (k * 533 / 1920),
+    fontWeight: t.hookBold ? 800 : 500,
+    fontStyle: t.hookItalic ? "italic" : "normal",
+    color: t.hookColor || "#fff",
+    background: bg === "none" ? "none" : bg + "cc",
+    padding: t.hookBoxed ? `${4 * k}px ${12 * k}px` : 0,
+    borderRadius: t.hookBoxed ? 4 * k : 0,
+    textShadow: t.hookBoxed ? "none" : "0 0 2px #000, 0 2px 6px rgba(0,0,0,.85)",
+    textTransform: t.hookUppercase ? "uppercase" : "none",
+    lineHeight: 1.15,
+    textAlign: "center",
+    maxWidth: "90%",
+  };
+}
+
 const SAMPLE = ["sabr", "is", "niet", "wachten", "tot", "het", "voorbij", "is"];
 
 export function Sample({ t, cur = 2, scale = 1, w = 260 }) {
@@ -36,6 +56,7 @@ export default function Style({ nav, go }) {
   const templates = s.settings.captionTemplates || [];
   const [selName, setSelName] = useState(s.settings.captionStyle?.name || templates[0]?.name);
   const [drag, setDrag] = useState(null);
+  const [hdrag, setHdrag] = useState(null);
   const idx = Math.max(0, templates.findIndex((t) => t.name === selName));
   const t = templates[idx] || templates[0];
   const src = s.sources.find((x) => x.id === nav.sourceId) || s.sources.find((x) => x.thumbPath);
@@ -70,8 +91,8 @@ export default function Style({ nav, go }) {
         <div className="stage">
           <div className="frame" style={{ width: frameW, height: frameH, background: "#22263A" }}>
             {src?.thumbPath && <img src={fileUrl(src.thumbPath)} alt="" style={{ position: "absolute", top: 0, left: "50%", height: "100%", transform: "translateX(-50%)", opacity: 0.9 }} />}
-            {t.hook && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 16 * k }}>Sabr ≠ wachten</span></div>}
-            <div className="cap" style={{ bottom: frameH * ((drag?.pct ?? t.positionPct) / 100) - 10, alignItems: t.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: drag ? "grabbing" : "ns-resize" }} onPointerDown={(e) => { e.preventDefault(); const r = e.currentTarget.parentElement.getBoundingClientRect(); setDrag({ bottom: r.bottom, h: r.height, pct: t.positionPct }); }} onPointerMove={(e) => { if (!drag) return; setDrag({ ...drag, pct: Math.round(Math.min(70, Math.max(4, ((drag.bottom - e.clientY) / drag.h) * 100 - 4))) }); }} onPointerUp={() => { if (!drag) return; if (drag.pct !== t.positionPct) patch({ positionPct: drag.pct }); setDrag(null); }} onPointerLeave={() => { if (drag) { if (drag.pct !== t.positionPct) patch({ positionPct: drag.pct }); setDrag(null); } }} title="drag up or down"><span style={{ ...captionCss(t, k), fontSize: t.size * (frameH / 1920) }}>{SAMPLE.slice(0, Math.max(1, t.wordsPerLine)).map((wd, i) => <span key={i} style={i === 2 && t.highlight.toLowerCase() !== t.textColor.toLowerCase() ? { color: t.highlight } : undefined}>{wd} </span>)}</span></div>
+            {t.hook && <div className="hook" style={{ top: frameH * ((hdrag?.pct ?? t.hookPct ?? 8) / 100), pointerEvents: "auto", cursor: hdrag ? "grabbing" : "ns-resize" }} onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setHdrag({ y0: e.clientY, pct0: t.hookPct ?? 8, pct: t.hookPct ?? 8 }); }} onPointerMove={(e) => { if (!hdrag) return; setHdrag({ ...hdrag, pct: Math.round(Math.min(60, Math.max(2, hdrag.pct0 + ((e.clientY - hdrag.y0) / frameH) * 100))) }); }} onPointerUp={() => { if (!hdrag) return; if (hdrag.pct !== t.hookPct) patch({ hookPct: hdrag.pct }); setHdrag(null); }} onPointerCancel={() => setHdrag(null)} title="drag up or down"><span style={hookCss(t, k)}>Sabr ≠ wachten</span></div>}
+            <div className="cap" style={{ bottom: frameH * ((drag?.pct ?? t.positionPct) / 100) - 10, alignItems: t.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: drag ? "grabbing" : "ns-resize" }} onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ y0: e.clientY, pct0: t.positionPct, pct: t.positionPct }); }} onPointerMove={(e) => { if (!drag) return; setDrag({ ...drag, pct: Math.round(Math.min(70, Math.max(4, drag.pct0 + ((drag.y0 - e.clientY) / frameH) * 100))) }); }} onPointerUp={() => { if (!drag) return; if (drag.pct !== t.positionPct) patch({ positionPct: drag.pct }); setDrag(null); }} onPointerCancel={() => setDrag(null)} title="drag up or down"><span style={{ ...captionCss(t, k), fontSize: t.size * (frameH / 1920) }}>{SAMPLE.slice(0, Math.max(1, t.wordsPerLine)).map((wd, i) => <span key={i} style={i === 2 && t.highlight.toLowerCase() !== t.textColor.toLowerCase() ? { color: t.highlight } : undefined}>{wd} </span>)}</span></div>
             {t.watermark && s.settings.channelName && <div style={{ position: "absolute", left: 12, bottom: 12, fontSize: 11 * k, fontWeight: 700, color: "#fff", textShadow: "0 1px 3px #000" }}>{s.settings.channelName}</div>}
           </div>
         </div>
@@ -98,6 +119,21 @@ export default function Style({ nav, go }) {
             <Check label="Channel name watermark" checked={t.watermark} onChange={(v) => patch({ watermark: v })} />
           </div>
           <span className="hint">Highlight equal to the text colour means no word highlight. Arabic and Urdu switch to Geeza Pro on render.</span>
+          <div style={{ borderTop: "1px solid var(--rule)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+            <b>Title at the top</b>
+            <Row label="Font"><select className="input" value={t.hookFont || ""} onChange={(e) => patch({ hookFont: e.target.value })}><option value="">Same as captions</option>{["Helvetica Neue", "Arial Black", "Avenir Next Condensed", "Futura", "Impact", "SF Pro Rounded", "Georgia", "Baskerville", "Didot", "Menlo", "Geeza Pro"].map((f) => <option key={f} value={f}>{f}</option>)}</select></Row>
+            <Row label="Size"><input type="range" className="slider" min="20" max="110" value={t.hookSize} onChange={(e) => patch({ hookSize: +e.target.value })} /><input className="input num" type="number" min="12" max="160" style={{ width: 64 }} value={t.hookSize} onChange={(e) => patch({ hookSize: +e.target.value || t.hookSize })} /></Row>
+            <Row label="From top"><input type="range" className="slider" min="2" max="60" value={t.hookPct} onChange={(e) => patch({ hookPct: +e.target.value })} /><input className="input num" type="number" min="2" max="60" style={{ width: 64 }} value={t.hookPct} onChange={(e) => patch({ hookPct: +e.target.value || t.hookPct })} /><span className="muted">%</span></Row>
+            <Row label="Shown for"><input type="range" className="slider" min="1" max="10" step="0.5" value={t.hookSeconds} onChange={(e) => patch({ hookSeconds: +e.target.value })} /><span className="num" style={{ width: 40 }}>{t.hookSeconds} s</span></Row>
+            <Row label="Text"><Swatches value={t.hookColor || "#FFFFFF"} onPick={(c) => patch({ hookColor: c })} /></Row>
+            <Row label="Box"><Swatches value={t.hookBoxColor || "#000000"} onPick={(c) => patch({ hookBoxColor: c, hookBoxed: true })} /></Row>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, paddingLeft: 118 }}>
+              <Check label="Box" checked={t.hookBoxed} onChange={(v) => patch({ hookBoxed: v })} />
+              <Check label="Uppercase" checked={t.hookUppercase} onChange={(v) => patch({ hookUppercase: v })} />
+              <Check label="Bold" checked={t.hookBold} onChange={(v) => patch({ hookBold: v })} />
+              <Check label="Italic" checked={t.hookItalic} onChange={(v) => patch({ hookItalic: v })} />
+            </div>
+          </div>
         </div>
         <span className="grow" />
         <div className="panel-foot" style={{ flexWrap: "wrap" }}>

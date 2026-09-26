@@ -75,14 +75,14 @@ export default function Reels({ nav, go }) {
   const cy = drag ? drag.y : c.crop?.y ?? 0.5;
   const left = Math.min(0, Math.max(frameW - vidW, frameW / 2 - cx * vidW));
   // Drag the picture inside the frame to move the crop: dragging left shows more of the right side.
-  const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); setDrag({ startX: e.clientX, startY: e.clientY, x: cx, y: cy, moved: false }); };
+  const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ startX: e.clientX, startY: e.clientY, x: cx, y: cy, moved: false }); };
   const onMove = (e) => { if (!drag) return; const dx = (e.clientX - drag.startX) / vidW; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x - dx)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 }); };
   const onUp = () => { if (!drag) return; if (drag.moved) patch({ crop: { ...(c.crop || {}), x: +drag.x.toFixed(3), y: +drag.y.toFixed(3) } }); else toggle(); setDrag(null); };
   // Drag the caption block up or down: a per-reel position, the template's otherwise.
   const [capDrag, setCapDrag] = useState(null);
   const capPct = capDrag?.pct ?? c.captionPct ?? tpl.positionPct ?? 26;
-  const onCapDown = (e) => { e.stopPropagation(); e.preventDefault(); const r = e.currentTarget.parentElement.getBoundingClientRect(); setCapDrag({ bottom: r.bottom, h: r.height, pct: capPct, moved: false }); };
-  const onCapMove = (e) => { if (!capDrag) return; e.stopPropagation(); const pct = Math.round(Math.min(70, Math.max(4, ((capDrag.bottom - e.clientY) / capDrag.h) * 100 - 4))); setCapDrag({ ...capDrag, pct, moved: true }); };
+  const onCapDown = (e) => { e.stopPropagation(); e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setCapDrag({ y0: e.clientY, h: frameH, pct0: capPct, pct: capPct, moved: false }); };
+  const onCapMove = (e) => { if (!capDrag) return; e.stopPropagation(); const pct = Math.round(Math.min(70, Math.max(4, capDrag.pct0 + ((capDrag.y0 - e.clientY) / capDrag.h) * 100))); setCapDrag({ ...capDrag, pct, moved: true }); };
   const onCapUp = (e) => { if (!capDrag) return; e.stopPropagation(); if (capDrag.moved) patch({ captionPct: capDrag.pct }); setCapDrag(null); };
   // Caption preview: the words of the current segment, current word highlighted.
   const cur = segs.find((g) => t >= g.start && t < g.end);
@@ -129,10 +129,10 @@ export default function Reels({ nav, go }) {
         <div className="panel grow">
           <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><span className="sub">crop</span><input type="range" className="slider" style={{ width: 120 }} min="0" max="1" step="0.01" value={cx} onChange={(e) => patch({ crop: { ...(c.crop || {}), x: +e.target.value } })} title="Horizontal crop position" /></div>
           <div className="stage" ref={stageRef}>
-            <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
+            <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
               {tpl.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 17 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
-              {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerLeave={onCapUp} title="drag up or down to move the captions"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
+              {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="drag up or down to move the captions"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>

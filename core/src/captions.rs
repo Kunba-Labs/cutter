@@ -62,14 +62,21 @@ pub fn build(c: &CaptionSpec) -> String {
         "[Script Info]\nScriptType: v4.00+\nPlayResX: {w}\nPlayResY: {h}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
 Style: Main,{font},{size},{primary},{white},&H00000000,{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_l},40,{bottom},1\n\
 Style: Trans,{font},{tsize},&H00F0F0F0,{white},&H00000000,&H99000000,0,0,0,0,100,100,0,0,3,0,0,2,60,60,{tbottom},1\n\
-Style: Hook,{font},{hsize},&H00FFFFFF,{white},&H00000000,&H99000000,-1,0,0,0,100,100,0,0,3,0,0,8,60,60,{htop},1\n\
+Style: Hook,{hfont},{hsize},{hcolor},{white},&H00000000,{hback},{hbold},{hitalic},0,0,100,100,0,0,{hborder},{houtline},0,8,60,60,{htop},1\n\
 Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100,100,0,0,3,0,0,1,40,40,60,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
         w = c.width,
         h = c.height,
         tsize = (size as f64 * 0.55) as i64,
         tbottom = bottom - (size as f64 * 1.9) as i64,
-        hsize = (size as f64 * 0.9) as i64,
-        htop = (c.height as f64 * 0.08) as i64,
+        hfont = if st.hook_font.is_empty() { font } else { st.hook_font.as_str() },
+        hsize = st.hook_size.max(12),
+        hcolor = ass_color(&st.hook_color),
+        hback = if st.hook_boxed { format!("&H33{}", &ass_color(&st.hook_box_color)[4..]) } else { "&H80000000".to_string() },
+        hbold = if st.hook_bold { -1 } else { 0 },
+        hitalic = if st.hook_italic { -1 } else { 0 },
+        hborder = if st.hook_boxed { 3 } else { 1 },
+        houtline = if st.hook_boxed { 0 } else { 3 },
+        htop = (c.height as f64 * st.hook_pct as f64 / 100.0) as i64,
         msize = (size as f64 * 0.45) as i64,
     );
     let dur = c.clip_end - c.clip_start;
@@ -124,7 +131,8 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100
         }
     }
     if st.hook && !c.hook.trim().is_empty() {
-        out.push_str(&format!("Dialogue: 2,{},{},Hook,,0,0,0,,{rtl_tag}{}\n", ts(0.0), ts(2.5f64.min(dur)), esc(c.hook)));
+        let text = if st.hook_uppercase { c.hook.to_uppercase() } else { c.hook.to_string() };
+        out.push_str(&format!("Dialogue: 2,{},{},Hook,,0,0,0,,{rtl_tag}{}\n", ts(0.0), ts(st.hook_seconds.max(0.5).min(dur)), esc(&text)));
     }
     if st.watermark && !c.watermark.trim().is_empty() {
         out.push_str(&format!("Dialogue: 2,{},{},Mark,,0,0,0,,{}\n", ts(0.0), ts(dur), esc(c.watermark)));

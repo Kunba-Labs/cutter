@@ -227,6 +227,18 @@ pub struct CaptionStyle {
     /// center | left
     pub align: String,
     pub hook: bool,
+    /// The title shown at the top for the first seconds: its own look.
+    pub hook_font: String,
+    pub hook_size: i64,
+    pub hook_color: String,
+    pub hook_boxed: bool,
+    pub hook_box_color: String,
+    pub hook_uppercase: bool,
+    pub hook_bold: bool,
+    pub hook_italic: bool,
+    /// Distance from the top as a percentage of the frame height.
+    pub hook_pct: i64,
+    pub hook_seconds: f64,
     pub watermark: bool,
     pub translation: bool,
 }
@@ -248,6 +260,16 @@ impl Default for CaptionStyle {
             bold: true,
             align: "center".into(),
             hook: true,
+            hook_font: String::new(),
+            hook_size: 40,
+            hook_color: "#FFFFFF".into(),
+            hook_boxed: true,
+            hook_box_color: "#000000".into(),
+            hook_uppercase: false,
+            hook_bold: true,
+            hook_italic: false,
+            hook_pct: 8,
+            hook_seconds: 2.5,
             watermark: true,
             translation: false,
         }
@@ -259,11 +281,11 @@ pub fn caption_templates() -> Vec<CaptionStyle> {
     let base = CaptionStyle::default();
     vec![
         base.clone(),
-        CaptionStyle { name: "Bold caps".into(), size: 54, position_pct: 34, words_per_line: 3, highlight: "#FFD400".into(), outline_px: 6, uppercase: true, ..base.clone() },
-        CaptionStyle { name: "Clean".into(), size: 40, words_per_line: 5, highlight: "#FFFFFF".into(), outline_px: 2, bold: false, ..base.clone() },
-        CaptionStyle { name: "Boxed".into(), size: 40, words_per_line: 4, highlight: "#3EF2A3".into(), outline_px: 0, boxed: true, ..base.clone() },
-        CaptionStyle { name: "Magenta".into(), size: 46, highlight: "#F52ACB".into(), outline_px: 5, ..base.clone() },
-        CaptionStyle { name: "Lower third".into(), preset: "lower".into(), size: 36, position_pct: 12, words_per_line: 6, highlight: "#FFFFFF".into(), outline_px: 0, boxed: true, align: "left".into(), ..base.clone() },
+        CaptionStyle { name: "Bold caps".into(), size: 54, position_pct: 34, words_per_line: 3, highlight: "#FFD400".into(), outline_px: 6, uppercase: true, hook_size: 56, hook_color: "#FFD400".into(), hook_boxed: false, hook_uppercase: true, hook_pct: 10, ..base.clone() },
+        CaptionStyle { name: "Clean".into(), size: 40, words_per_line: 5, highlight: "#FFFFFF".into(), outline_px: 2, bold: false, hook_font: "Georgia".into(), hook_size: 46, hook_boxed: false, hook_bold: false, hook_italic: true, ..base.clone() },
+        CaptionStyle { name: "Boxed".into(), size: 40, words_per_line: 4, highlight: "#3EF2A3".into(), outline_px: 0, boxed: true, hook_size: 38, hook_boxed: true, hook_box_color: "#3EF2A3".into(), hook_color: "#14061A".into(), ..base.clone() },
+        CaptionStyle { name: "Magenta".into(), size: 46, highlight: "#F52ACB".into(), outline_px: 5, hook_size: 44, hook_boxed: true, hook_box_color: "#F52ACB".into(), hook_color: "#FFFFFF".into(), hook_uppercase: true, ..base.clone() },
+        CaptionStyle { name: "Lower third".into(), preset: "lower".into(), size: 36, position_pct: 12, words_per_line: 6, highlight: "#FFFFFF".into(), outline_px: 0, boxed: true, align: "left".into(), hook_size: 30, hook_boxed: true, hook_uppercase: true, hook_pct: 6, ..base.clone() },
     ]
 }
 

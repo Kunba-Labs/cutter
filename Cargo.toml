@@ -3,6 +3,6 @@ resolver = "2"
 members = ["core", "cli", "desktop/src-tauri"]
 
 [profile.release]
-strip = true
+# no `strip = true`: with rustc 1.96 / Xcode 27 it mangles proc-macro dylibs ("mis-aligned LINKEDIT string pool") and the Tauri release build dies in darling/ctor.
 lto = true
 codegen-units = 1

@@ -64,14 +64,16 @@ fn print(v: Value) {
     println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
 }
 
-/// key=value → string, key:=<json> → parsed.
+/// key=value → string (number/bool when it parses as one), key:=<json> → parsed.
 fn kv(args: &[String]) -> Value {
     let mut m = serde_json::Map::new();
     for a in args {
         if let Some((k, v)) = a.split_once(":=") {
             m.insert(k.into(), serde_json::from_str(v).unwrap_or_else(|_| fail(&format!("bad json for {k}"))));
         } else if let Some((k, v)) = a.split_once('=') {
-            m.insert(k.into(), json!(v));
+            // Numbers and booleans as such; everything else stays a string.
+            let typed = serde_json::from_str::<Value>(v).ok().filter(|j| j.is_number() || j.is_boolean()).unwrap_or_else(|| json!(v));
+            m.insert(k.into(), typed);
         } else {
             fail(&format!("expected key=value, got {a}"));
         }

@@ -16,6 +16,7 @@ $CLI headless > /tmp/cuttar-smoke/headless.log 2>&1 &
 HP=$!
 trap 'kill $HP 2>/dev/null || true' EXIT
 for i in $(seq 1 40); do curl -s http://127.0.0.1:$CUTTAR_PORT/health >/dev/null && break; sleep 0.5; done
+$CLI settings patch:='{"outDir":"/tmp/cuttar-smoke/out"}' >/dev/null
 SRC=$($CLI add "$VID" language=en | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 echo "source $SRC"
 for i in $(seq 1 240); do
@@ -24,12 +25,22 @@ for i in $(seq 1 240); do
   case "$STAGE" in review*|failed*|done*) break;; esac
   sleep 5
 done
-$CLI source id=$SRC | python3 -c 'import sys,json; d=json.load(sys.stdin); t=d["transcript"]; print("transcript:", t and t["language"], t and len(t["segments"]), "segments"); [print(f"  {c[\"score\"]} {c[\"category\"]:10} {c[\"start\"]:6.1f}-{c[\"end\"]:6.1f} {c[\"title\"]}") for c in d["candidates"]]'
-$CLI approve_above sourceId=$SRC score=1 >/dev/null
-$CLI render sourceId=$SRC formats:='["shorts"]' >/dev/null
+$CLI source id=$SRC | python3 -c '
+import sys, json
+d = json.load(sys.stdin); t = d["transcript"]
+print("transcript:", t and t["language"], t and len(t["segments"]), "segments")
+for c in d["candidates"]:
+    print("  %s %-10s %6.1f-%6.1f %s%s" % (c["score"], c["category"], c["start"], c["end"], c["title"], " ✓" if c["approved"] else ""))
+'
+echo "approved: $($CLI approve_above sourceId=$SRC score=1)"
+echo "render jobs: $($CLI render sourceId=$SRC formats:='["shorts"]' | tr -d '\n ')"
 for i in $(seq 1 60); do
   LEFT=$($CLI jobs | python3 -c 'import sys,json; print(sum(1 for j in json.load(sys.stdin) if j["status"] in ("queued","running")))')
   [ "$LEFT" = "0" ] && break; sleep 3
 done
-$CLI jobs | python3 -c 'import sys,json; [print(f"  {j[\"kind\"]:12} {j[\"status\"]:9} {j[\"message\"][:90]}") for j in json.load(sys.stdin)]'
+$CLI jobs | python3 -c '
+import sys, json
+for j in json.load(sys.stdin):
+    print("  %-12s %-9s %s" % (j["kind"], j["status"], j["message"][:90]))
+'
 $CLI source id=$SRC | python3 -c 'import sys,json; d=json.load(sys.stdin); [print("render:", r["status"], r["path"]) for r in d["renders"]]'

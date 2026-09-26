@@ -88,7 +88,7 @@ export default function Library({ nav, go, query, setAdding }) {
           </Panel>
           <Panel title="Engines" style={{ width: 300, flexShrink: 0 }}>
             <div className="grid2" style={{ fontSize: 11 }}>
-              {[["ffmpeg", "ffmpeg"], ["ytdlp", "yt-dlp"], ["whisper", "whisper (MLX)"], ["claude", "claude CLI"], ["ollama", "ollama"], ["uv", "uv"]].map(([k, l]) => <span key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={s.tools[k] ? "mint" : "muted"} /><span className={s.tools[k] ? "" : "muted"}>{l}</span></span>)}
+              {[["ffmpeg", s.tools.ffmpeg && !s.tools.ffmpegAss ? "ffmpeg (no libass!)" : "ffmpeg"], ["ytdlp", "yt-dlp"], ["whisper", "whisper (MLX)"], ["claude", "claude CLI"], ["ollama", "ollama"], ["uv", "uv"]].map(([k, l]) => <span key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={s.tools[k] ? "mint" : "muted"} /><span className={s.tools[k] ? "" : "muted"}>{l}</span></span>)}
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={s.settings.youtube?.refreshToken ? "mint" : "muted"} /><span className={s.settings.youtube?.refreshToken ? "" : "muted"}>YouTube · {s.settings.youtube?.channelTitle || "not linked"}</span></span>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c="muted" /><span className="muted">TikTok · Meta · not linked</span></span>
             </div>

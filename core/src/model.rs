@@ -159,8 +159,8 @@ pub struct Post {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Poster {
     pub id: String,
     pub template: String,
@@ -177,6 +177,12 @@ pub struct Poster {
     pub error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl Default for Poster {
+    fn default() -> Self {
+        Self { id: String::new(), template: String::new(), title: String::new(), fields: serde_json::json!({}), folder: String::new(), variants: Vec::new(), chosen: None, qr_ok: false, outputs: serde_json::json!({}), status: String::new(), error: None, created_at: String::new(), updated_at: String::new() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -319,6 +325,8 @@ impl Default for Settings {
 #[serde(rename_all = "camelCase")]
 pub struct Tools {
     pub ffmpeg: Option<String>,
+    /// ffmpeg was built with libass (burned captions need it).
+    pub ffmpeg_ass: bool,
     pub ytdlp: Option<String>,
     pub whisper: Option<String>,
     pub claude: Option<String>,

@@ -15,7 +15,7 @@ pub struct Probe {
 }
 
 pub fn probe(path: &Path) -> Result<Probe, String> {
-    let out = Command::new("ffprobe").args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"]).arg(path).output().map_err(|e| format!("ffprobe: {e}"))?;
+    let out = Command::new(crate::tools::ffprobe_bin()).args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"]).arg(path).output().map_err(|e| format!("ffprobe: {e}"))?;
     let v: Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe json: {e}"))?;
     let video = v["streams"].as_array().into_iter().flatten().find(|s| s["codec_type"] == "video").cloned().unwrap_or(Value::Null);
     Ok(Probe {
@@ -73,7 +73,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
     }
     let vf = vf.join(",");
     let mut run = |encoder: &[&str]| -> Result<(), String> {
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = Command::new(crate::tools::ffmpeg_bin());
         cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error", "-ss", &format!("{:.3}", r.start), "-to", &format!("{:.3}", r.end)])
             .arg("-i")
             .arg(r.src)
@@ -130,16 +130,16 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
 /// One frame at `t`, cropped like the reel, as JPEG.
 pub fn cover(src: &Path, t: f64, out: &Path, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64) -> Result<(), String> {
     let vf = format!("{},scale={}:{}", crop_filter(src_w, src_h, width, height, cx, cy), width, height);
-    crate::tools::run(Command::new("ffmpeg").args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "3"]).arg(out)).map(|_| ())
+    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "3"]).arg(out)).map(|_| ())
 }
 
 pub fn thumbnail(src: &Path, out: &Path) -> Result<(), String> {
-    crate::tools::run(Command::new("ffmpeg").args(["-y", "-hide_banner", "-loglevel", "error", "-ss", "30"]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4"]).arg(out)).map(|_| ())
+    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", "30"]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4"]).arg(out)).map(|_| ())
 }
 
 /// Silences (start, end) longer than `min_s`, for snapping cut points.
 pub fn silences(src: &Path, min_s: f64) -> Vec<(f64, f64)> {
-    let out = Command::new("ffmpeg").args(["-hide_banner", "-nostats"]).arg("-i").arg(src).args(["-af", &format!("silencedetect=n=-35dB:d={min_s}"), "-f", "null", "-"]).output();
+    let out = Command::new(crate::tools::ffmpeg_bin()).args(["-hide_banner", "-nostats"]).arg("-i").arg(src).args(["-af", &format!("silencedetect=n=-35dB:d={min_s}"), "-f", "null", "-"]).output();
     let Ok(out) = out else { return vec![] };
     let text = String::from_utf8_lossy(&out.stderr);
     let mut res = Vec::new();
@@ -213,30 +213,45 @@ fn ass_path_arg(p: &Path) -> String {
     p.display().to_string().replace('\\', "\\\\").replace(':', "\\:").replace('\'', "\\'")
 }
 
-/// The "starting soon" loop: the poster on a blurred copy of itself, a slow
-/// breathing zoom, the text lines and a live countdown burned in.
+/// The blurred, darkened poster as a still background, rendered once so the
+/// loop does not pay for a blur per frame.
+fn background(poster: &Path, out: &Path, width: i64, height: i64) -> Result<(), String> {
+    let vf = format!("scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},boxblur=30:5,eq=brightness=-0.25");
+    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error"]).arg("-i").arg(poster).args(["-vf", &vf, "-frames:v", "1"]).arg(out)).map(|_| ())
+}
+
+/// The "starting soon" loop: the poster floating slowly over its blurred
+/// self, the text lines and a live countdown burned in through libass.
+/// ponytail: a 12 s sine float instead of zoompan — hardware encode then runs
+/// far faster than realtime; zoompan+boxblur per frame ran at ~5 fps.
 pub fn waiting_video(w: &WaitingSpec) -> Result<(), String> {
     let landscape = w.width > w.height;
     let (pw, ph) = (w.width, w.height);
     let poster_h = if landscape { ph - 120 } else { (ph as f64 * 0.62) as i64 };
+    let bg = w.out.with_extension("bg.png");
+    background(w.poster, &bg, pw, ph)?;
     let ass = w.out.with_extension("ass");
     std::fs::write(&ass, waiting_ass(w, landscape)).map_err(|e| e.to_string())?;
-    let zoom = "zoompan=z='1.04+0.03*sin(2*PI*on/1000)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':fps=25";
     let filter = format!(
-        "[0:v]scale={pw}:{ph}:force_original_aspect_ratio=increase,crop={pw}:{ph},boxblur=30:5,eq=brightness=-0.25,{zoom}:s={pw}x{ph}[bg];[0:v]scale=-2:{poster_h}[fg];[bg][fg]overlay={}:{}:shortest=1,ass='{}'",
+        "[1:v]scale=-2:{poster_h}[fg];[0:v][fg]overlay={}:'{}+6*sin(2*PI*t/12)':shortest=1,ass='{}'",
         if landscape { "80".to_string() } else { "(W-w)/2".to_string() },
         if landscape { 60 } else { 40 },
         ass_path_arg(&ass)
     );
-    crate::tools::run(
-        Command::new("ffmpeg")
+    let r = crate::tools::run(
+        Command::new(crate::tools::ffmpeg_bin())
             .args(["-y", "-hide_banner", "-loglevel", "error", "-loop", "1", "-framerate", "25"])
+            .arg("-i")
+            .arg(&bg)
+            .args(["-loop", "1", "-framerate", "25"])
             .arg("-i")
             .arg(w.poster)
             .args(["-t", &w.loop_s.to_string(), "-filter_complex", &filter, "-c:v", "h264_videotoolbox", "-b:v", "6M", "-pix_fmt", "yuv420p", "-r", "25", "-an", "-movflags", "+faststart"])
             .arg(w.out),
     )
-    .map(|_| ())
+    .map(|_| ());
+    let _ = std::fs::remove_file(&bg);
+    r
 }
 
 /// A still card (break / ended) with the poster and one line of text.
@@ -252,7 +267,7 @@ pub fn still(poster: &Path, out: &Path, width: i64, height: i64, text: &str, fon
         if landscape { 60 } else { 40 },
         ass_path_arg(&ass)
     );
-    let r = crate::tools::run(Command::new("ffmpeg").args(["-y", "-hide_banner", "-loglevel", "error"]).arg("-i").arg(poster).args(["-filter_complex", &filter, "-frames:v", "1"]).arg(out)).map(|_| ());
+    let r = crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error"]).arg("-i").arg(poster).args(["-filter_complex", &filter, "-frames:v", "1"]).arg(out)).map(|_| ());
     let _ = std::fs::remove_file(&ass);
     r
 }
@@ -261,7 +276,7 @@ pub fn still(poster: &Path, out: &Path, width: i64, height: i64, text: &str, fon
 /// blurred background, so nothing is cut off.
 pub fn poster_pad(poster: &Path, out: &Path, width: i64, height: i64) -> Result<(), String> {
     let filter = format!("[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},boxblur=40:8[bg];[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2");
-    crate::tools::run(Command::new("ffmpeg").args(["-y", "-hide_banner", "-loglevel", "error"]).arg("-i").arg(poster).args(["-filter_complex", &filter, "-frames:v", "1"]).arg(out)).map(|_| ())
+    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error"]).arg("-i").arg(poster).args(["-filter_complex", &filter, "-frames:v", "1"]).arg(out)).map(|_| ())
 }
 
 #[cfg(test)]

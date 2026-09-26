@@ -616,7 +616,20 @@ impl Library {
                 }
                 let qr = self.settings().whatsapp_link;
                 let link = p.fields["qrLink"].as_str().map(String::from).unwrap_or(qr);
-                let final_path = if link.is_empty() { path.clone() } else { posters::add_qr(&self.data_dir, Path::new(&path), &link).map(|p| p.display().to_string()).unwrap_or(path) };
+                let final_path = if link.is_empty() {
+                    path.clone()
+                } else {
+                    match posters::add_qr(&self.data_dir, Path::new(&path), &link) {
+                        Ok(q) => {
+                            p.qr_ok = true;
+                            q.display().to_string()
+                        }
+                        Err(e) => {
+                            log::warn!("QR paste failed on {path}: {e}");
+                            path
+                        }
+                    }
+                };
                 p.variants.push(final_path);
                 self.save_poster(&mut p);
                 json!(p)
@@ -633,6 +646,9 @@ impl Library {
                 let id = id()?;
                 let mut p: Poster = self.get("posters", &id).ok_or("no such poster")?;
                 let outputs = posters::export(&p, &self.settings())?;
+                if !p.outputs.is_object() {
+                    p.outputs = json!({});
+                }
                 merge(&mut p.outputs, &outputs);
                 p.status = "exported".into();
                 self.save_poster(&mut p);

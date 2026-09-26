@@ -52,6 +52,7 @@ export default function Settings() {
             </Panel>
             <Panel title="Tools found">
               <div className="grid2" style={{ fontSize: 11.5 }}>{[["ffmpeg", "ffmpeg"], ["ytdlp", "yt-dlp"], ["whisper", "mlx_whisper"], ["claude", "claude"], ["ollama", "ollama"], ["uv", "uv"]].map(([k, l]) => <span key={k} style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={s.tools[k] ? "mint" : "coral"} />{l} <span className="muted ell">{s.tools[k] || "missing"}</span></span>)}</div>
+              {s.tools.ffmpeg && !s.tools.ffmpegAss && <span className="coral" style={{ fontSize: 11.5 }}>This ffmpeg was built without libass, so captions cannot be burned in. `brew reinstall ffmpeg` gives the standard build.</span>}
               <span className="hint">Missing: `brew install ffmpeg yt-dlp uv`, `uv tool install mlx-whisper`, `npm i -g @anthropic-ai/claude-code`.</span>
             </Panel>
           </>

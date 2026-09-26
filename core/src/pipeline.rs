@@ -427,6 +427,9 @@ fn waiting_video(lib: &Library, job: &Job) -> Result<Value, String> {
     let font = lib.settings().caption_style.font;
     let jid = job.id.clone();
     let outputs = posters::waiting_video(&p, &args, &font, |pr, m| lib.job_progress(&jid, pr, m))?;
+    if !p.outputs.is_object() {
+        p.outputs = json!({});
+    }
     crate::merge(&mut p.outputs, &outputs);
     lib.save_poster(&mut p);
     Ok(json!({ "message": "waiting videos rendered" }))

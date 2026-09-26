@@ -19,13 +19,34 @@ pub fn inherit_login_path() {
     }
 }
 
+/// Homebrew's plain `ffmpeg` formula has no libass since 9.0; `ffmpeg-full` is
+/// keg-only, so prefer it when installed. Same for ffprobe.
+pub fn ffmpeg_bin() -> String {
+    for p in ["/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg", "/usr/local/opt/ffmpeg-full/bin/ffmpeg"] {
+        if std::path::Path::new(p).exists() {
+            return p.into();
+        }
+    }
+    "ffmpeg".into()
+}
+
+pub fn ffprobe_bin() -> String {
+    let f = ffmpeg_bin();
+    match f.rsplit_once('/') {
+        Some((dir, _)) => format!("{dir}/ffprobe"),
+        None => "ffprobe".into(),
+    }
+}
+
 fn find(bin: &str) -> Option<String> {
     which::which(bin).ok().map(|p| p.display().to_string())
 }
 
 pub fn detect(claude_bin: &str) -> Tools {
+    let ffmpeg_ass = Command::new(ffmpeg_bin()).args(["-hide_banner", "-filters"]).output().map(|o| String::from_utf8_lossy(&o.stdout).lines().any(|l| l.split_whitespace().nth(1) == Some("ass"))).unwrap_or(false);
     Tools {
-        ffmpeg: find("ffmpeg"),
+        ffmpeg: if ffmpeg_bin() == "ffmpeg" { find("ffmpeg") } else { Some(ffmpeg_bin()) },
+        ffmpeg_ass,
         ytdlp: find("yt-dlp"),
         whisper: find("mlx_whisper"),
         claude: find(claude_bin),

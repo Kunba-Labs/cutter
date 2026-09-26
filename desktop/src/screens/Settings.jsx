@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore, tryAct, FORMATS } from "../store.js";
-import { Panel, Btn, Check, Text, Seg, Dot } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Seg, Dot, Brand } from "../ui.jsx";
 
 const SECTIONS = [["general", "General"], ["engines", "Engines and brain"], ["channels", "Channels"], ["captions", "Captions"], ["posters", "Posters"], ["mcp", "CLI and MCP"]];
 
@@ -59,7 +59,7 @@ export default function Settings() {
         )}
         {sec === "channels" && (
           <>
-            <Panel title="YouTube" sub="Data API v3 · OAuth desktop app · Shorts upload with publishAt" right={<span style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 500 }}><Dot c={yt.refreshToken ? "mint" : "muted"} />{yt.refreshToken ? `connected · ${yt.channelTitle}` : "not connected"}</span>}>
+            <Panel title={<span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id="youtube" />YouTube</span>} sub="Data API v3 · OAuth desktop app · Shorts upload with publishAt" right={<span style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 500 }}><Dot c={yt.refreshToken ? "mint" : "muted"} />{yt.refreshToken ? `connected · ${yt.channelTitle}` : "not connected"}</span>}>
               <Row label="OAuth client id"><Text style={W} value={yt.clientId} onCommit={(v) => patch({ youtube: { clientId: v } })} placeholder="…apps.googleusercontent.com" /></Row>
               <Row label="OAuth client secret"><Text style={W} type="password" value={yt.clientSecret} onCommit={(v) => patch({ youtube: { clientSecret: v } })} /></Row>
               <Row label="">{yt.refreshToken ? <Btn onClick={() => tryAct("youtube_disconnect", {}, "Disconnected")}>Disconnect</Btn> : <Btn primary disabled={!yt.clientId || !yt.clientSecret || busy} onClick={async () => { setBusy(true); await tryAct("youtube_connect", {}, "YouTube connected"); setBusy(false); }}>{busy ? "Waiting for Google…" : "Connect Google account"}</Btn>}<span className="hint">Google Cloud console → APIs → YouTube Data API v3 enabled → Credentials → OAuth client, type Desktop app. The consent page opens in your browser.</span></Row>
@@ -68,7 +68,7 @@ export default function Settings() {
               <Row label="Title suffix"><Text style={W} value={yt.titleSuffix} onCommit={(v) => patch({ youtube: { titleSuffix: v } })} /></Row>
               <Row label="Description footer"><Text style={W} value={yt.descriptionFooter} onCommit={(v) => patch({ youtube: { descriptionFooter: v } })} /><span className="hint">{"{source_url}"} is replaced</span></Row>
             </Panel>
-            <Panel title="TikTok · Instagram · Facebook" right={<span style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 500 }}><Dot c="muted" />not linked</span>}>
+            <Panel title={<span style={{ display: "flex", alignItems: "center", gap: 8 }}><Brand id="tiktok" /><Brand id="instagram" /><Brand id="facebook" />TikTok · Instagram · Facebook</span>} right={<span style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 500 }}><Dot c="muted" />not linked</span>}>
               <span className="hint">Both need an approved developer app (TikTok Content Posting API, Meta Graph API for Reels). Until then a confirmed post for these channels fails with the path of the rendered file and its caption.txt, ready for a manual upload. The calendar still plans them.</span>
             </Panel>
           </>

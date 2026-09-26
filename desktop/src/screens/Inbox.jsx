@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore, tryAct, fmtLong, ago } from "../store.js";
-import { Panel, Btn, Check, Text, Dot, Bar, I } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Dot, Bar, I, Brand } from "../ui.jsx";
 
 export default function Inbox({ go, setAdding }) {
   const s = useStore();
@@ -18,7 +18,7 @@ export default function Inbox({ go, setAdding }) {
         <div className="panel" style={{ flexShrink: 0 }}>
           <div className="panel-head"><span className="grow">Watched channels</span><Btn small icon primary onClick={() => setAdding(true)} aria-label="Watch a channel">{I.plus}</Btn></div>
           {s.channels.length === 0 && <div className="empty">No channels yet.</div>}
-          {s.channels.map((c) => <div key={c.id} className={`nav-item ${ch?.id === c.id ? "on" : ""}`} style={{ padding: "6px 10px" }} onClick={() => setSelId(c.id)}><span className="sq" style={{ background: c.enabled ? "var(--mint)" : "var(--raised)" }} /><span className="grow ell">{c.name}</span><span className={s.inbox.some((i) => i.channelId === c.id && i.status === "new") ? "pink" : "muted"}>{s.inbox.filter((i) => i.channelId === c.id && i.status === "new").length || ""}</span></div>)}
+          {s.channels.map((c) => <div key={c.id} className={`nav-item ${ch?.id === c.id ? "on" : ""}`} style={{ padding: "6px 10px" }} onClick={() => setSelId(c.id)}><Brand id="youtube" mono={!c.enabled} style={{ opacity: c.enabled ? 1 : 0.5 }} /><span className="grow ell">{c.name}</span><span className={s.inbox.some((i) => i.channelId === c.id && i.status === "new") ? "pink" : "muted"}>{s.inbox.filter((i) => i.channelId === c.id && i.status === "new").length || ""}</span></div>)}
         </div>
         {ch && (
           <Panel title={`Rules · ${ch.name}`} className="grow" right={<Btn small icon danger onClick={() => confirm(`Stop watching ${ch.name}?`) && tryAct("remove_channel", { id: ch.id })} aria-label="Remove">{I.trash}</Btn>}>

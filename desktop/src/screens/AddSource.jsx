@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { tryAct, LANGS, useStore } from "../store.js";
-import { Btn, Field, Check, Seg, I } from "../ui.jsx";
+import { Btn, Field, Check, Seg, I, Confirm } from "../ui.jsx";
 
 export default function AddSource({ onClose, go }) {
   const settings = useStore((s) => s.settings);
@@ -13,6 +13,18 @@ export default function AddSource({ onClose, go }) {
   const [autoApprove, setAutoApprove] = useState(false);
   const [channel, setChannel] = useState({ url: "", name: "", intervalH: 6, minLenS: 600, titleRegex: "", autoProcess: true, autoApproveScore: 0 });
   const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const dirty = url.trim() || path.trim() || channel.url.trim();
+  const close = () => (dirty ? setAsking(true) : onClose());
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      if (asking) setAsking(false); else close();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
 
   const submit = async () => {
     setBusy(true);
@@ -31,9 +43,9 @@ export default function AddSource({ onClose, go }) {
   };
 
   return (
-    <div className="sheet-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="sheet-bg" onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <div className="sheet">
-        <div className="panel-head"><span className="grow">Add source</span><Btn small icon onClick={onClose} aria-label="Close">{I.x}</Btn></div>
+        <div className="panel-head"><span className="grow">Add source</span><Btn small icon onClick={close} aria-label="Close">{I.x}</Btn></div>
         <div className="panel-body" style={{ gap: 12, padding: 12 }}>
           <Seg big value={mode} onChange={setMode} options={[["url", "YouTube link"], ["channel", "Watch a channel"], ["file", "Local file"]]} />
           {mode === "url" && <Field label="URL"><input className="input" autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>}
@@ -67,11 +79,12 @@ export default function AddSource({ onClose, go }) {
           )}
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span className="hint grow">{settings.outDir}</span>
-            <Btn onClick={onClose}>Cancel</Btn>
+            <Btn onClick={close}>Cancel</Btn>
             <Btn primary disabled={busy || (mode === "url" ? !url.trim() : mode === "file" ? !path.trim() : !channel.url.trim())} onClick={submit}>{I.play} {mode === "channel" ? "Watch" : "Add and run"}</Btn>
           </div>
         </div>
       </div>
+      {asking && <Confirm text="Close and lose what you typed?" onYes={onClose} onNo={() => setAsking(false)} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore, tryAct, fileUrl, fmtLong, ago, STAGES } from "../store.js";
-import { Panel, Btn, Dot, Bar, I } from "../ui.jsx";
+import { Panel, Btn, Dot, Bar, I, Brand, FileMark } from "../ui.jsx";
 
 export default function Library({ nav, go, query, setAdding }) {
   const s = useStore();
@@ -39,10 +39,10 @@ export default function Library({ nav, go, query, setAdding }) {
         <div className="panel-head"><span className="grow">Sources</span><Btn small icon primary onClick={() => setAdding(true)} aria-label="Add source">{I.plus}</Btn></div>
         <div className="scroll" style={{ padding: "6px 0" }}>
           {s.channels.length > 0 && <div className="nav-group">Watched channels</div>}
-          {s.channels.map((c) => <div key={c.id} className={`nav-item ${filter === "ch:" + c.id ? "on" : ""}`} onClick={() => setFilter("ch:" + c.id)}><span className="sq" style={{ background: c.enabled ? "var(--mint)" : "var(--raised)" }} /><span className="grow ell">{c.name}</span><span className="muted">{count((x) => x.channelId === c.id)}</span></div>)}
+          {s.channels.map((c) => <div key={c.id} className={`nav-item ${filter === "ch:" + c.id ? "on" : ""}`} onClick={() => setFilter("ch:" + c.id)}><Brand id="youtube" mono={!c.enabled} style={{ opacity: c.enabled ? 1 : 0.5 }} /><span className="grow ell">{c.name}</span><span className="muted">{count((x) => x.channelId === c.id)}</span></div>)}
           <div className="nav-group">Added by hand</div>
-          <div className={`nav-item ${filter === "kind:youtube" ? "on" : ""}`} onClick={() => setFilter("kind:youtube")}><span className="sq" style={{ background: "var(--accent)" }} /><span className="grow">YouTube links</span><span className="muted">{count((x) => x.kind === "youtube")}</span></div>
-          <div className={`nav-item ${filter === "kind:file" ? "on" : ""}`} onClick={() => setFilter("kind:file")}><span className="sq" style={{ background: "var(--violet)" }} /><span className="grow">Local files</span><span className="muted">{count((x) => x.kind === "file")}</span></div>
+          <div className={`nav-item ${filter === "kind:youtube" ? "on" : ""}`} onClick={() => setFilter("kind:youtube")}><Brand id="youtube" /><span className="grow">YouTube links</span><span className="muted">{count((x) => x.kind === "youtube")}</span></div>
+          <div className={`nav-item ${filter === "kind:file" ? "on" : ""}`} onClick={() => setFilter("kind:file")}><FileMark /><span className="grow">Local files</span><span className="muted">{count((x) => x.kind === "file")}</span></div>
           <div className="nav-group">Filters</div>
           {[["all", "Everything", count(() => true)], ["review", "Needs review", count((x) => x.stage === "review" && cands(x.id).some((c) => !c.approved && !c.discarded))], ["progress", "In progress", count((x) => !!jobOf(x.id))], ["published", "Published", count((x) => s.posts.some((p) => p.status === "posted" && cands(x.id).some((c) => c.id === p.candidateId)))], ["failed", "Failed", count((x) => x.stage === "failed")]].map(([k, l, n]) => (
             <div key={k} className={`nav-item ${filter === k ? "on" : ""}`} onClick={() => setFilter(k)}><span className="grow">{l}</span><span className={k === "review" ? "pink" : k === "failed" && n ? "coral" : "muted"}>{n}</span></div>
@@ -69,7 +69,7 @@ export default function Library({ nav, go, query, setAdding }) {
               const n = cands(x.id).length, ok = cands(x.id).filter((c) => c.approved).length;
               return (
                 <div key={x.id} className={`row ${sel?.id === x.id ? "on" : ""}`} style={{ gridTemplateColumns: "48px minmax(0,1fr) 46px 200px 90px 80px" }} onClick={() => go("library", { sourceId: x.id, view: "reels" })} onDoubleClick={() => go(x.stage === "review" || n ? "reels" : "library", { sourceId: x.id, view: n ? "reels" : "transcript" })}>
-                  {x.thumbPath ? <img className="thumb" src={fileUrl(x.thumbPath)} width={44} height={25} alt="" /> : <span className="thumb" style={{ width: 44, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--muted)" }}>{x.kind === "file" ? I.file : I.yt}</span>}
+                  {x.thumbPath ? <img className="thumb" src={fileUrl(x.thumbPath)} width={44} height={25} alt="" /> : <span className="thumb" style={{ width: 44, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--muted)" }}>{x.kind === "file" ? <FileMark size={16} /> : <Brand id="youtube" size={16} />}</span>}
                   <span className="ell">{x.title} <span className="muted">· {fmtLong(x.duration)}</span></span>
                   <span>{(x.langOverride || x.language || "auto").toUpperCase()}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={c} /><span className={c === "coral" ? "coral" : ""}>{j ? (j.status === "queued" ? "Queued · " : "") + (j.message || label) : x.stage === "review" ? `Review · ${ok} of ${n} ticked` : x.stage === "failed" ? "Failed" : label}</span>{j && j.status === "running" && j.progress > 0 && <Bar v={j.progress} />}</span>
@@ -89,8 +89,8 @@ export default function Library({ nav, go, query, setAdding }) {
           <Panel title="Engines" style={{ width: 300, flexShrink: 0 }}>
             <div className="grid2" style={{ fontSize: 11 }}>
               {[["ffmpeg", s.tools.ffmpeg && !s.tools.ffmpegAss ? "ffmpeg (no libass!)" : "ffmpeg"], ["ytdlp", "yt-dlp"], ["whisper", "whisper (MLX)"], ["claude", "claude CLI"], ["ollama", "ollama"], ["uv", "uv"]].map(([k, l]) => <span key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={s.tools[k] ? "mint" : "muted"} /><span className={s.tools[k] ? "" : "muted"}>{l}</span></span>)}
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={s.settings.youtube?.refreshToken ? "mint" : "muted"} /><span className={s.settings.youtube?.refreshToken ? "" : "muted"}>YouTube · {s.settings.youtube?.channelTitle || "not linked"}</span></span>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c="muted" /><span className="muted">TikTok · Meta · not linked</span></span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id="youtube" mono={!s.settings.youtube?.refreshToken} /><span className={s.settings.youtube?.refreshToken ? "" : "muted"}>YouTube · {s.settings.youtube?.channelTitle || "not linked"}</span></span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id="tiktok" mono /><Brand id="instagram" mono /><span className="muted">not linked</span></span>
             </div>
             <span className="hint">MCP {s.mcp ? `on ${s.mcp.url}` : "off"} · <a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>settings</a></span>
           </Panel>

@@ -69,5 +69,5 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - libass: the `ass=` filter path must escape `:` and `\`; ASS colours are `&HAABBGGRR`.
 - ffmpeg drawtext countdown: `%{eif:…}` with `\:` and `\,` escaped inside the filter.
 - Tauri `dragDropEnabled` is false so the webview gets its own drops.
-- Release profile has no `strip = true`: on this toolchain it corrupts proc-macro dylibs (darling, ctor) and only the Tauri build (`--features tauri/custom-protocol`) trips over it. `cargo clean --release` after changing the profile.
+- Release profile has no `lto` and no `strip`: on this toolchain (rustc 1.96, Xcode 27) `lto = true` corrupts proc-macro dylibs (darling, ctor: "mis-aligned LINKEDIT string pool", surfacing as E0463). `cargo clean --release` after changing the profile.
 - Two processes must never write the same output file: cancel or wait for a job before queueing the same one with different args (`enqueue` only dedupes identical args).

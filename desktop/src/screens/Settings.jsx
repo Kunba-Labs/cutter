@@ -12,7 +12,7 @@ export default function Settings() {
   const patch = (p, msg) => tryAct("settings", { patch: p }, msg);
   const yt = st.youtube || {};
   const cs = st.captionStyle || {};
-  const Row = ({ label, children, hint }) => <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}><span className="muted" style={{ width: 150, flexShrink: 0 }}>{label}</span>{children}{hint && <span className="hint">{hint}</span>}</div>;
+  const Row = ({ label, children, hint }) => <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}><span className="muted" style={{ width: 150, flexShrink: 0 }}>{label}</span>{children}{hint && <span className="hint">{hint}</span>}</div>;
   const W = { width: 300 };
 
   return (
@@ -21,7 +21,7 @@ export default function Settings() {
         <div className="panel-head">Settings</div>
         {SECTIONS.map(([k, l]) => <div key={k} className={`nav-item ${sec === k ? "on" : ""}`} style={{ padding: "7px 10px" }} onClick={() => setSec(k)}>{l}</div>)}
         <span className="grow" />
-        <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch", gap: 3, fontSize: 11, color: "var(--muted)" }}><span>Cuttar 0.1</span><span className="ell">{s.paths.dataDir}</span></div>
+        <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch", gap: 3, fontSize: 12, color: "var(--muted)" }}><span>Cuttar 0.1</span><span className="ell">{s.paths.dataDir}</span></div>
       </div>
       <div className="col grow">
         {sec === "general" && (
@@ -51,8 +51,8 @@ export default function Settings() {
               <Row label="Translate captions to"><select className="input" style={{ width: 140 }} value={st.translateTo} onChange={(e) => patch({ translateTo: e.target.value })}><option value="">off</option><option value="en">English</option><option value="nl">Dutch</option><option value="ar">Arabic</option><option value="ur">Urdu</option></select><span className="hint">a second caption line, written by the brain while it picks reels</span></Row>
             </Panel>
             <Panel title="Tools found">
-              <div className="grid2" style={{ fontSize: 11.5 }}>{[["ffmpeg", "ffmpeg"], ["ytdlp", "yt-dlp"], ["whisper", "mlx_whisper"], ["claude", "claude"], ["ollama", "ollama"], ["uv", "uv"]].map(([k, l]) => <span key={k} style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={s.tools[k] ? "mint" : "coral"} />{l} <span className="muted ell">{s.tools[k] || "missing"}</span></span>)}</div>
-              {s.tools.ffmpeg && !s.tools.ffmpegAss && <span className="coral" style={{ fontSize: 11.5 }}>This ffmpeg was built without libass, so captions cannot be burned in. `brew reinstall ffmpeg` gives the standard build.</span>}
+              <div className="grid2" style={{ fontSize: 12.5 }}>{[["ffmpeg", "ffmpeg"], ["ytdlp", "yt-dlp"], ["whisper", "mlx_whisper"], ["claude", "claude"], ["ollama", "ollama"], ["uv", "uv"]].map(([k, l]) => <span key={k} style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={s.tools[k] ? "mint" : "coral"} />{l} <span className="muted ell">{s.tools[k] || "missing"}</span></span>)}</div>
+              {s.tools.ffmpeg && !s.tools.ffmpegAss && <span className="coral" style={{ fontSize: 12.5 }}>This ffmpeg was built without libass, so captions cannot be burned in. `brew reinstall ffmpeg` gives the standard build.</span>}
               <span className="hint">Missing: `brew install ffmpeg yt-dlp uv`, `uv tool install mlx-whisper`, `npm i -g @anthropic-ai/claude-code`.</span>
             </Panel>
           </>

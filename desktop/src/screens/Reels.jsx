@@ -93,7 +93,7 @@ export default function Reels({ nav, go }) {
     <div className="main">
       <div className="panel" style={{ width: 320, flexShrink: 0 }}>
         <div className="panel-head"><span>Candidates</span><span className="sub">{cands.length} · {ticked} ticked</span><span className="grow" /><Btn small onClick={() => tryAct("approve_above", { sourceId, score: 8 }, "Ticked everything scoring 8+")}>Tick ≥ 8</Btn></div>
-        <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--rule)", display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
+        <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--rule)", display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 60 }}>Source</span><select className="input" style={{ height: 22 }} value={sourceId} onChange={(e) => { go("reels", { sourceId: e.target.value }); setSelId(null); }}>{sources.map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}</select></div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 60 }}>Min score</span><input type="range" className="slider" min="0" max="10" value={minScore} onChange={(e) => setMinScore(+e.target.value)} /><span style={{ width: 16 }}>{minScore}</span></div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>{CATS.map((k) => { const n = cands.filter((v) => v.category === k).length; return n ? <span key={k} className={`chip ${k}`}>{k} {n}</span> : null; })}</div>
@@ -103,7 +103,7 @@ export default function Reels({ nav, go }) {
             <div key={v.id} className={`cand ${v.id === c.id ? "on" : ""} ${v.discarded ? "off" : ""}`} onClick={() => setSelId(v.id)}>
               <input type="checkbox" checked={v.approved} onChange={(e) => tryAct("approve", { ids: [v.id], approved: e.target.checked })} onClick={(e) => e.stopPropagation()} style={{ accentColor: "var(--accent)", margin: 0 }} />
               <span className="score">{v.score}</span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}><span className="ell">{v.title || "(untitled)"}</span><span className={`${v.category}`} style={{ fontSize: 10.5, color: `var(--${{ fact: "cyan", statement: "amber", hook: "accent-text", story: "violet", dua: "mint", reminder: "sec", qa: "peach" }[v.category] || "sec"})` }}>{v.category}{s.renders.some((r) => r.candidateId === v.id && r.status === "done") ? " · rendered" : ""}</span></span>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}><span className="ell">{v.title || "(untitled)"}</span><span className={`${v.category}`} style={{ fontSize: 11.5, color: `var(--${{ fact: "cyan", statement: "amber", hook: "accent-text", story: "violet", dua: "mint", reminder: "sec", qa: "peach" }[v.category] || "sec"})` }}>{v.category}{s.renders.some((r) => r.candidateId === v.id && r.status === "done") ? " · rendered" : ""}</span></span>
               <span className="muted num" style={{ textAlign: "right" }}>{(v.end - v.start).toFixed(1)} s</span>
             </div>
           ))}
@@ -121,12 +121,12 @@ export default function Reels({ nav, go }) {
           <div className="stage" ref={stageRef}>
             <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
-              {s.settings.captionStyle?.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 15 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
-              {line.length > 0 && <div className="cap" style={{ bottom: frameH * ((s.settings.captionStyle?.positionPct || 26) / 100 + (format === "tiktok" ? 0.08 : 0)) - 10 }}><span className="line" style={{ fontSize: (s.settings.captionStyle?.size || 42) * (frameH / 1920) }}>{line.map((w, i) => <span key={i}>{t >= w.s && t < w.e ? <b>{w.w}</b> : w.w} </span>)}</span>{s.settings.captionStyle?.translation !== false && trans && <span className="trans" style={{ fontSize: 11 * k }}>{trans.text}</span>}</div>}
+              {s.settings.captionStyle?.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 16 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
+              {line.length > 0 && <div className="cap" style={{ bottom: frameH * ((s.settings.captionStyle?.positionPct || 26) / 100 + (format === "tiktok" ? 0.08 : 0)) - 10 }}><span className="line" style={{ fontSize: (s.settings.captionStyle?.size || 42) * (frameH / 1920) }}>{line.map((w, i) => <span key={i}>{t >= w.s && t < w.e ? <b>{w.w}</b> : w.w} </span>)}</span>{s.settings.captionStyle?.translation !== false && trans && <span className="trans" style={{ fontSize: 12 * k }}>{trans.text}</span>}</div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
-              <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 10, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
+              <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 11, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
-            <div style={{ position: "absolute", right: 16, top: 12, display: "flex", flexDirection: "column", gap: 6, fontSize: 11, color: "var(--muted)", alignItems: "flex-end" }}><span>source {fmt(c.start)} → {fmt(c.end)}</span><span className={dur > s.settings.maxReelS ? "coral" : "mint"}>{dur.toFixed(1)} s of {s.settings.maxReelS} max</span>{renders.map((r) => <a key={r.id} href="#" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>{r.format}.mp4 ▸</a>)}</div>
+            <div style={{ position: "absolute", right: 16, top: 12, display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: "var(--muted)", alignItems: "flex-end" }}><span>source {fmt(c.start)} → {fmt(c.end)}</span><span className={dur > s.settings.maxReelS ? "coral" : "mint"}>{dur.toFixed(1)} s of {s.settings.maxReelS} max</span>{renders.map((r) => <a key={r.id} href="#" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>{r.format}.mp4 ▸</a>)}</div>
           </div>
           <div className="transport">
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.max(0, i - 1)]?.id); }} aria-label="Previous">{I.prev}</Btn>
@@ -146,11 +146,11 @@ export default function Reels({ nav, go }) {
       </div>
 
       <div className="panel" style={{ width: 320, flexShrink: 0 }}>
-        <div className="panel-head"><span className="grow">Reel</span><span className="score">score {c.score}</span><select className="input" style={{ width: 100, height: 20, fontSize: 10.5 }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
+        <div className="panel-head"><span className="grow">Reel</span><span className="score">score {c.score}</span><select className="input" style={{ width: 100, height: 20, fontSize: 11.5 }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
         <div className="panel-body">
           <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
           <Field label="On-screen hook · first 2.5 s"><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
-          {c.why && <Field label="Why Claude picked it"><span style={{ color: "var(--text-2)", lineHeight: 1.45, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "6px 8px", fontSize: 11.5 }}>{c.why}</span></Field>}
+          {c.why && <Field label="Why Claude picked it"><span style={{ color: "var(--text-2)", lineHeight: 1.45, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "6px 8px", fontSize: 12.5 }}>{c.why}</span></Field>}
           <Field label="Caption"><Text area rows={3} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
           <Field label="Hashtags"><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
           <div className="grid2">

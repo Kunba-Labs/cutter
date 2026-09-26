@@ -23,9 +23,9 @@ export default function Inbox({ go, setAdding }) {
         {ch && (
           <Panel title={`Rules · ${ch.name}`} className="grow" right={<Btn small icon danger onClick={() => confirm(`Stop watching ${ch.name}?`) && tryAct("remove_channel", { id: ch.id })} aria-label="Remove">{I.trash}</Btn>}>
             <Check label="Enabled" checked={ch.enabled} onChange={(v) => patch({ enabled: v })} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5 }}><span className="muted">Check every</span><span>{ch.intervalH} h</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}><span className="muted">Check every</span><span>{ch.intervalH} h</span></div>
             <input type="range" className="slider" min="1" max="48" value={ch.intervalH} onChange={(e) => patch({ intervalH: +e.target.value })} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5 }}><span className="muted">Minimum length</span><span>{Math.round(ch.minLenS / 60)} min</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}><span className="muted">Minimum length</span><span>{Math.round(ch.minLenS / 60)} min</span></div>
             <input type="range" className="slider" min="0" max="3600" step="60" value={ch.minLenS} onChange={(e) => patch({ minLenS: +e.target.value })} />
             <label className="field"><span>Title must match (regex)</span><Text value={ch.titleRegex} onCommit={(v) => patch({ titleRegex: v })} placeholder="tafsir|seerah" /></label>
             <label className="field"><span>Only uploads after</span><Text value={ch.since} onCommit={(v) => patch({ since: v })} placeholder="2026-09-01" /></label>
@@ -46,7 +46,7 @@ export default function Inbox({ go, setAdding }) {
             {fresh.map((i) => (
               <div key={i.id} className="row" style={{ gridTemplateColumns: "104px minmax(0,1fr) 200px", padding: "8px 10px", cursor: "default" }}>
                 <img className="thumb" src={`https://i.ytimg.com/vi/${i.videoId}/mqdefault.jpg`} width={104} height={58} alt="" />
-                <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}><b className="ell" style={{ fontSize: 12 }}>{i.title}</b><span className="muted">{s.channels.find((c) => c.id === i.channelId)?.name} · {i.uploadedAt ? ago(i.uploadedAt) : "date unknown"} · {fmtLong(i.duration)}</span></span>
+                <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}><b className="ell" style={{ fontSize: 13 }}>{i.title}</b><span className="muted">{s.channels.find((c) => c.id === i.channelId)?.name} · {i.uploadedAt ? ago(i.uploadedAt) : "date unknown"} · {fmtLong(i.duration)}</span></span>
                 <span style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}><Btn small primary onClick={async () => { const r = await tryAct("process_inbox", { id: i.id }, "Added to the library"); if (r) go("library", { sourceId: r.id, view: "reels" }); }}>Process</Btn><Btn small onClick={() => tryAct("skip_inbox", { id: i.id })}>Skip</Btn></span>
               </div>
             ))}

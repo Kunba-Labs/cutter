@@ -1,0 +1,15 @@
+[package]
+name = "cuttar"
+version = "0.1.0"
+edition = "2021"
+default-run = "cuttar"
+
+[[bin]]
+name = "cuttar"
+path = "src/main.rs"
+
+[dependencies]
+cuttar-core = { path = "../core" }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+log = "0.4"

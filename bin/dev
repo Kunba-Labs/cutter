@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Cuttar Dev — the play identity (com.cuttar.desktop.dev, port 47252). The daily app is `yarn install:app`.
+set -e
+cd "$(dirname "$0")/../desktop"
+exec yarn dev "$@"

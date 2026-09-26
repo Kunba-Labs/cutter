@@ -1,0 +1,475 @@
+//! Jobs: the workers that run them, what each kind does, and the scheduler
+//! that checks channels and sends posts on time.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde_json::{json, Value};
+
+use crate::model::*;
+use crate::{brain, captions, ffmpeg, posters, whisper, youtube, ytdlp, Library};
+
+pub fn worker(lib: Arc<Library>) {
+    loop {
+        match lib.claim_job() {
+            Some(job) => {
+                let id = job.id.clone();
+                log::info!("job {} {} {} start", id, job.kind, job.ref_id);
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&lib, &job))).unwrap_or_else(|_| Err("job panicked".into()));
+                if let Err(e) = &result {
+                    log::warn!("job {id} failed: {e}");
+                }
+                lib.finish_job(&id, result);
+            }
+            None => std::thread::sleep(Duration::from_millis(500)),
+        }
+    }
+}
+
+/// Every 30 s: channels past their interval, and confirmed posts whose time came.
+pub fn scheduler(lib: Arc<Library>) {
+    std::thread::sleep(Duration::from_secs(5));
+    loop {
+        let now = chrono::Utc::now();
+        for c in lib.all::<Channel>("channels").into_iter().filter(|c| c.enabled) {
+            let due = c.last_check.as_deref().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| now.signed_duration_since(t).num_minutes() >= c.interval_h.max(1) * 60).unwrap_or(true);
+            if due {
+                lib.enqueue("check_channel", &c.id, &c.name, json!({}));
+            }
+        }
+        for p in lib.all::<Post>("posts") {
+            // YouTube takes publishAt, so a confirmed YouTube post uploads right away; others wait for their time.
+            let due = p.channel == "youtube" || chrono::DateTime::parse_from_rfc3339(&p.scheduled_at).map(|t| t <= now).unwrap_or(false);
+            if p.status == "confirmed" && due {
+                lib.enqueue("publish", &p.id, &p.title, json!({}));
+            }
+        }
+        std::thread::sleep(Duration::from_secs(30));
+    }
+}
+
+fn run(lib: &Library, job: &Job) -> Result<Value, String> {
+    match job.kind.as_str() {
+        "download" => download(lib, job),
+        "transcribe" => transcribe(lib, job),
+        "detect" => detect(lib, job),
+        "render" => render(lib, job),
+        "publish" => publish(lib, job),
+        "check_channel" => check_channel(lib, job),
+        "poster" => poster(lib, job),
+        "waiting_video" => waiting_video(lib, job),
+        k => Err(format!("unknown job kind {k}")),
+    }
+}
+
+fn source(lib: &Library, id: &str) -> Result<Source, String> {
+    lib.get::<Source>("sources", id).ok_or_else(|| "source is gone".to_string())
+}
+
+fn set_stage(lib: &Library, src: &mut Source, stage: &str, error: Option<String>) {
+    src.stage = stage.into();
+    src.error = error;
+    lib.save_source(src);
+}
+
+fn fail(lib: &Library, id: &str, e: String) -> Result<Value, String> {
+    if let Ok(mut src) = source(lib, id) {
+        set_stage(lib, &mut src, "failed", Some(e.clone()));
+    }
+    Err(e)
+}
+
+fn download(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut src = source(lib, &job.ref_id)?;
+    std::fs::create_dir_all(&src.folder).map_err(|e| e.to_string())?;
+    let dir = PathBuf::from(&src.folder);
+    set_stage(lib, &mut src, "downloading", None);
+    let res: Result<(), String> = (|| {
+        if let Some(p) = src.path.clone() {
+            // A local file: link it into the folder so every source looks the same.
+            let video = dir.join("source.mp4");
+            if !video.exists() {
+                std::fs::hard_link(&p, &video).or_else(|_| std::fs::copy(&p, &video).map(|_| ())).map_err(|e| format!("copy: {e}"))?;
+            }
+            let thumb = dir.join("thumb.jpg");
+            let _ = ffmpeg::thumbnail(&video, &thumb);
+            src.video_path = Some(video.display().to_string());
+            src.thumb_path = Some(thumb.display().to_string()).filter(|_| thumb.exists());
+        } else {
+            let url = src.url.clone().unwrap();
+            lib.job_progress(&job.id, 0.0, "reading metadata");
+            let info = ytdlp::info(&url)?;
+            src.title = info["title"].as_str().unwrap_or(&src.title).to_string();
+            src.channel = info["channel"].as_str().or(info["uploader"].as_str()).map(String::from);
+            src.duration = info["duration"].as_f64();
+            if src.lang_override.is_none() {
+                src.language = info["language"].as_str().map(|l| l[..2.min(l.len())].to_string());
+            }
+            src.meta = json!({ "uploadDate": info["upload_date"], "description": info["description"].as_str().map(|d| d.chars().take(2000).collect::<String>()), "chapters": info["chapters"], "viewCount": info["view_count"], "id": info["id"] });
+            lib.save_source(&mut src);
+            let lang = src.lang_override.clone().or(src.language.clone());
+            let jid = job.id.clone();
+            let d = ytdlp::download(&url, &dir, lang.as_deref(), |p, msg| lib.job_progress(&jid, p, msg), |pid| lib.register_child(&job.id, pid))?;
+            src.video_path = Some(d.video.display().to_string());
+            src.thumb_path = d.thumb.map(|p| p.display().to_string());
+            src.captions_path = d.captions.map(|p| p.display().to_string());
+        }
+        let probe = ffmpeg::probe(Path::new(src.video_path.as_ref().unwrap()))?;
+        src.duration = Some(probe.duration);
+        src.meta["width"] = json!(probe.width);
+        src.meta["height"] = json!(probe.height);
+        Ok(())
+    })();
+    if let Err(e) = res {
+        return fail(lib, &job.ref_id, e);
+    }
+    set_stage(lib, &mut src, "downloaded", None);
+    lib.enqueue("transcribe", &src.id, &src.title, json!({}));
+    Ok(json!({ "message": "downloaded" }))
+}
+
+fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut src = source(lib, &job.ref_id)?;
+    let video = PathBuf::from(src.video_path.clone().ok_or("no video yet")?);
+    let s = lib.settings();
+    set_stage(lib, &mut src, "transcribing", None);
+    let lang = src.lang_override.clone();
+    let res: Result<Transcript, String> = (|| {
+        let use_captions = matches!(src.transcript_source.as_str(), "captions" | "both");
+        let captions = if use_captions {
+            src.captions_path.clone().or_else(|| src.url.as_ref().and_then(|u| ytdlp::fetch_auto_captions(u, video.parent().unwrap(), lang.as_deref().or(src.language.as_deref()).unwrap_or("nl")).map(|p| p.display().to_string())))
+        } else {
+            None
+        };
+        if src.transcript_source == "captions" {
+            let path = captions.ok_or("YouTube has no captions for this video; switch to whisper")?;
+            let vtt = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            let segments = ytdlp::vtt_to_segments(&vtt);
+            if segments.is_empty() {
+                return Err("the caption file is empty".into());
+            }
+            let language = lang.clone().or(src.language.clone()).unwrap_or_else(|| Path::new(&path).file_name().unwrap().to_string_lossy().split('.').nth(1).unwrap_or("").chars().take(2).collect());
+            return Ok(Transcript { source_id: src.id.clone(), engine: "captions".into(), language, segments, created_at: now() });
+        }
+        let jid = job.id.clone();
+        let attempt = |model: &str| whisper::transcribe(&video, model, lang.as_deref(), &s.glossary, src.duration.unwrap_or(0.0), |p, m| lib.job_progress(&jid, p, &format!("{model} · {m}")), |pid| lib.register_child(&jid, pid));
+        let t = match attempt(&s.whisper_model) {
+            Ok(t) => t,
+            Err(e) if whisper::is_oom(&e) && !s.whisper_fallback.is_empty() => {
+                lib.job_log(&job.id, &format!("{e} — retrying with {}", s.whisper_fallback));
+                attempt(&s.whisper_fallback)?
+            }
+            Err(e) => return Err(e),
+        };
+        if t.segments.is_empty() {
+            return Err("whisper heard nothing".into());
+        }
+        Ok(Transcript { source_id: src.id.clone(), engine: format!("whisper {}", s.whisper_model.rsplit('/').next().unwrap_or("")), language: lang.clone().unwrap_or(t.language), segments: t.segments, created_at: now() })
+    })();
+    let t = match res {
+        Ok(t) => t,
+        Err(e) => return fail(lib, &job.ref_id, e),
+    };
+    let text: String = t.segments.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ");
+    lib.put("transcripts", &src.id, &now(), &t);
+    let _ = lib.db.lock().fts_put(&src.id, &text);
+    let _ = std::fs::write(Path::new(&src.folder).join("transcript.srt"), captions::srt(&t.segments, 0.0, f64::MAX));
+    src.language = Some(t.language.clone());
+    set_stage(lib, &mut src, "transcribed", None);
+    if src.auto_detect {
+        lib.enqueue("detect", &src.id, &src.title, json!({}));
+    }
+    Ok(json!({ "message": format!("{} segments · {}", t.segments.len(), t.language) }))
+}
+
+fn detect(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut src = source(lib, &job.ref_id)?;
+    let t: Transcript = lib.get("transcripts", &src.id).ok_or("transcribe first")?;
+    let s = lib.settings();
+    set_stage(lib, &mut src, "detecting", None);
+    let mut drafts = Vec::new();
+    let chunks = brain::chunks(&t.segments);
+    for (n, (a, b)) in chunks.iter().enumerate() {
+        lib.job_progress(&job.id, n as f64 / chunks.len() as f64, &format!("{} reading part {} of {}", s.brain, n + 1, chunks.len()));
+        let prompt = brain::prompt(&t.segments[*a..*b], *a, &src.title, &t.language, &s);
+        let text = match brain::ask(&s, &prompt, Duration::from_secs(15 * 60), |pid| lib.register_child(&job.id, pid)) {
+            Ok(t) => t,
+            Err(e) => return fail(lib, &src.id, e),
+        };
+        match brain::parse_drafts(&text) {
+            Ok(d) => drafts.extend(d),
+            Err(e) => {
+                lib.job_log(&job.id, &format!("{e}: {}", text.chars().take(400).collect::<String>()));
+                return fail(lib, &src.id, e);
+            }
+        }
+    }
+    let cands = brain::to_candidates(drafts, &t.segments, &src.id, s.max_reel_s as f64);
+    // Replace the previous run's untouched candidates; keep approved and edited ones.
+    let _ = lib.db.lock().delete_where::<Candidate>("candidates", |c| c.source_id == src.id && !c.approved && !c.discarded && c.created_at == c.updated_at);
+    let mut n = 0;
+    for mut c in cands {
+        if c.score < s.min_score {
+            continue;
+        }
+        if src.auto_approve_score > 0 && c.score >= src.auto_approve_score {
+            c.approved = true;
+        }
+        lib.put("candidates", &c.id, &format!("{}-{:08.2}", c.source_id, c.start), &c);
+        n += 1;
+        if c.approved {
+            for f in &s.formats {
+                lib.enqueue("render", &c.id, &format!("{} · {f}", c.title), json!({ "format": f }));
+            }
+        }
+    }
+    set_stage(lib, &mut src, "review", None);
+    Ok(json!({ "message": format!("{n} candidates") }))
+}
+
+fn render(lib: &Library, job: &Job) -> Result<Value, String> {
+    let c: Candidate = lib.get("candidates", &job.ref_id).ok_or("candidate is gone")?;
+    let src = source(lib, &c.source_id)?;
+    let t: Transcript = lib.get("transcripts", &src.id).ok_or("no transcript")?;
+    let s = lib.settings();
+    let format = job.args["format"].as_str().unwrap_or("shorts").to_string();
+    let video = PathBuf::from(src.video_path.clone().ok_or("no video")?);
+    let (w, h, extra) = ffmpeg::format_spec(&format);
+    let (sw, sh) = (src.meta["width"].as_i64().unwrap_or(1920), src.meta["height"].as_i64().unwrap_or(1080));
+    let dir = PathBuf::from(&src.folder).join(slug(&c.title));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let out = dir.join(format!("{format}.mp4"));
+    let lead = 0.25;
+    let (start, end) = ((c.start - lead).max(0.0), (c.end + 0.35).min(src.duration.unwrap_or(f64::MAX)));
+    let style = c.style.as_deref().map(|p| CaptionStyle { preset: p.into(), ..s.caption_style.clone() }).unwrap_or(s.caption_style.clone());
+    let ass = dir.join(format!("{format}.ass"));
+    std::fs::write(&ass, captions::build(&captions::CaptionSpec { segments: &t.segments, translation: &c.translation, clip_start: start, clip_end: end, width: w, height: h, extra_bottom: extra, style: &style, language: &t.language, hook: &c.hook, watermark: &s.channel_name })).map_err(|e| e.to_string())?;
+    let mut r = Render { id: new_id("r"), candidate_id: c.id.clone(), source_id: src.id.clone(), format: format.clone(), path: out.display().to_string(), status: "rendering".into(), created_at: now(), ..Default::default() };
+    lib.put("renders", &r.id, &r.created_at, &r);
+    let jid = job.id.clone();
+    let res = ffmpeg::render(
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), ass: Some(&ass) },
+        |p, m| lib.job_progress(&jid, p, m),
+        |pid| lib.register_child(&jid, pid),
+    );
+    match res {
+        Ok(()) => {
+            let cover = dir.join(format!("{format}-cover.jpg"));
+            let _ = ffmpeg::cover(&video, c.start + 1.0, &cover, sw, sh, w, h, c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5));
+            let srt = dir.join("captions.srt");
+            let _ = std::fs::write(&srt, captions::srt(&t.segments, start, end));
+            let _ = std::fs::write(dir.join("caption.txt"), format!("{}\n\n{}\n{}", c.title, c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")));
+            r.status = "done".into();
+            r.cover_path = Some(cover.display().to_string()).filter(|_| cover.exists());
+            r.srt_path = Some(srt.display().to_string());
+            // Older renders of the same reel+format are replaced.
+            let _ = lib.db.lock().delete_where::<Render>("renders", |o| o.candidate_id == c.id && o.format == format && o.id != r.id);
+            lib.put("renders", &r.id, &r.created_at, &r);
+            if src.auto_schedule {
+                autofill(lib, 14);
+            }
+            lib.changed();
+            Ok(json!({ "message": out.display().to_string() }))
+        }
+        Err(e) => {
+            r.status = "failed".into();
+            r.error = Some(e.clone());
+            lib.put("renders", &r.id, &r.created_at, &r);
+            lib.changed();
+            Err(e)
+        }
+    }
+}
+
+fn publish(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut p: Post = lib.get("posts", &job.ref_id).ok_or("post is gone")?;
+    if p.status == "posted" {
+        return Ok(json!({ "message": "already posted" }));
+    }
+    p.status = "posting".into();
+    lib.save_post(&mut p);
+    let s = lib.settings();
+    let res: Result<String, String> = (|| {
+        let path = match (&p.render_id, &p.poster_id) {
+            (Some(r), _) => lib.get::<Render>("renders", r).map(|r| r.path).ok_or("the render is gone")?,
+            (None, Some(po)) => lib.get::<Poster>("posters", po).and_then(|p| p.outputs["story"].as_str().map(String::from)).ok_or("export the poster first")?,
+            _ => return Err("nothing to post: render the reel first".into()),
+        };
+        match p.channel.as_str() {
+            "youtube" => {
+                let publish_at = chrono::DateTime::parse_from_rfc3339(&p.scheduled_at).ok().filter(|t| *t > chrono::Utc::now() + chrono::Duration::minutes(2)).map(|t| t.to_rfc3339());
+                let jid = job.id.clone();
+                let title = format!("{}{}", p.title.chars().take(95).collect::<String>(), s.youtube.title_suffix);
+                let tags: Vec<String> = p.caption.split_whitespace().filter_map(|w| w.strip_prefix('#')).map(String::from).collect();
+                youtube::upload(&s.youtube, &youtube::Upload { path: Path::new(&path), title: &title, description: &p.caption, tags: &tags, category_id: &s.youtube.category_id, privacy: &s.youtube.privacy, publish_at: publish_at.as_deref() }, |pr, m| lib.job_progress(&jid, pr, m))
+            }
+            // ponytail: TikTok and Meta need approved developer apps; until then the render sits in Finder with its caption.txt.
+            other => Err(format!("{other} is not linked yet. The file is ready at {path} with caption.txt beside it.")),
+        }
+    })();
+    match res {
+        Ok(provider_id) => {
+            p.status = "posted".into();
+            p.provider_id = Some(provider_id.clone());
+            p.error = None;
+            lib.save_post(&mut p);
+            Ok(json!({ "message": provider_id }))
+        }
+        Err(e) => {
+            p.status = "failed".into();
+            p.error = Some(e.clone());
+            lib.save_post(&mut p);
+            Err(e)
+        }
+    }
+}
+
+fn check_channel(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut c: Channel = lib.get("channels", &job.ref_id).ok_or("channel is gone")?;
+    let videos = match ytdlp::channel_videos(&c.url, 30) {
+        Ok(v) => v,
+        Err(e) => {
+            c.last_error = Some(e.clone());
+            c.last_check = Some(now());
+            lib.put("channels", &c.id, &now(), &c);
+            lib.changed();
+            return Err(e);
+        }
+    };
+    let known: Vec<InboxItem> = lib.all::<InboxItem>("inbox").into_iter().filter(|i| i.channel_id == c.id).collect();
+    let re = (!c.title_regex.trim().is_empty()).then(|| regex::RegexBuilder::new(&c.title_regex).case_insensitive(true).build().ok()).flatten();
+    let mut new = 0;
+    for v in videos {
+        if known.iter().any(|k| k.video_id == v.id) {
+            continue;
+        }
+        let below = v.duration.map(|d| d < c.min_len_s as f64).unwrap_or(false);
+        let filtered = re.as_ref().map(|r| !r.is_match(&v.title)).unwrap_or(false);
+        let too_old = !c.since.is_empty() && v.uploaded_at.as_deref().map(|u| u < c.since.as_str()).unwrap_or(false);
+        let status = if below { "below_min" } else if filtered { "filtered" } else if too_old { "skipped" } else { "new" };
+        let mut item = InboxItem { id: new_id("in"), channel_id: c.id.clone(), video_id: v.id, url: v.url, title: v.title, duration: v.duration, uploaded_at: v.uploaded_at, status: status.into(), source_id: None, found_at: now() };
+        if status == "new" && c.auto_process {
+            if let Ok(src) = lib.add_source(&json!({ "url": item.url, "title": item.title, "channelId": c.id, "autoApproveScore": c.auto_approve_score, "autoSchedule": c.auto_schedule })) {
+                item.status = "processed".into();
+                item.source_id = Some(src.id);
+            }
+        }
+        if status == "new" {
+            new += 1;
+        }
+        lib.put("inbox", &item.id, &item.found_at, &item);
+    }
+    c.last_check = Some(now());
+    c.last_error = None;
+    if c.name == c.url {
+        if let Some(first) = known.first() {
+            let _ = first;
+        }
+    }
+    lib.put("channels", &c.id, &now(), &c);
+    lib.changed();
+    Ok(json!({ "message": format!("{new} new") }))
+}
+
+fn poster(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut p: Poster = lib.get("posters", &job.ref_id).ok_or("poster is gone")?;
+    p.status = "generating".into();
+    lib.save_poster(&mut p);
+    lib.job_progress(&job.id, 0.05, "Claude + Higgsfield are drawing 3 variants");
+    let res = posters::generate(lib, &p, |pid| lib.register_child(&job.id, pid));
+    let (files, palettes) = match res {
+        Ok(v) => v,
+        Err(e) => {
+            p.status = "failed".into();
+            p.error = Some(e.clone());
+            lib.save_poster(&mut p);
+            return Err(e);
+        }
+    };
+    let link = p.fields["qrLink"].as_str().map(String::from).unwrap_or_else(|| lib.settings().whatsapp_link);
+    let mut variants = Vec::new();
+    for f in files {
+        lib.job_progress(&job.id, 0.8, "pasting the QR code");
+        let path = if link.is_empty() {
+            f.display().to_string()
+        } else {
+            match posters::add_qr(&lib.data_dir, &f, &link) {
+                Ok(q) => {
+                    p.qr_ok = true;
+                    q.display().to_string()
+                }
+                Err(e) => {
+                    lib.job_log(&job.id, &format!("QR failed on {}: {e}", f.display()));
+                    f.display().to_string()
+                }
+            }
+        };
+        variants.push(path);
+    }
+    p.variants = variants;
+    p.fields["palettes"] = json!(palettes);
+    p.status = "variants".into();
+    p.error = None;
+    lib.save_poster(&mut p);
+    let _ = std::process::Command::new("open").arg(&p.folder).spawn();
+    Ok(json!({ "message": format!("{} variants", p.variants.len()) }))
+}
+
+fn waiting_video(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut p: Poster = lib.get("posters", &job.ref_id).ok_or("poster is gone")?;
+    let a = &job.args;
+    let start_at = a["startAt"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&chrono::Utc));
+    let lines: Vec<String> = a["lines"].as_array().map(|l| l.iter().filter_map(|v| v.as_str().map(String::from)).collect()).filter(|l: &Vec<String>| !l.is_empty()).unwrap_or_else(|| {
+        vec!["Begint zo".into(), p.title.clone(), p.fields["date"].as_str().unwrap_or("").to_string(), p.fields["programme"].as_str().unwrap_or("").to_string()].into_iter().filter(|l| !l.is_empty()).collect()
+    });
+    let args = posters::WaitingArgs { start_at, lines, loop_s: a["loopS"].as_i64().unwrap_or(600), countdown: a["countdown"].as_bool().unwrap_or(true) };
+    let font = lib.settings().caption_style.font;
+    let jid = job.id.clone();
+    let outputs = posters::waiting_video(&p, &args, &font, |pr, m| lib.job_progress(&jid, pr, m))?;
+    crate::merge(&mut p.outputs, &outputs);
+    lib.save_poster(&mut p);
+    Ok(json!({ "message": "waiting videos rendered" }))
+}
+
+/// Put approved, rendered, unscheduled reels on the calendar: one per channel
+/// per day at the channel's cadence hours, starting tomorrow. Returns how many.
+pub fn autofill(lib: &Library, days: i64) -> usize {
+    let s = lib.settings();
+    let posts: Vec<Post> = lib.all("posts");
+    let renders: Vec<Render> = lib.all::<Render>("renders").into_iter().filter(|r| r.status == "done").collect();
+    let mut n = 0;
+    let cadence = s.cadence.as_object().cloned().unwrap_or_default();
+    for (channel, hours) in cadence {
+        if channel == "youtube" && s.youtube.refresh_token.is_empty() {
+            continue;
+        }
+        let fmt = crate::default_format(&channel);
+        let mut ready: Vec<&Render> = renders.iter().filter(|r| r.format == fmt && !posts.iter().any(|p| p.channel == channel && p.candidate_id.as_deref() == Some(&r.candidate_id))).collect();
+        ready.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        let hours: Vec<i64> = hours.as_array().map(|h| h.iter().filter_map(|v| v.as_i64()).collect()).unwrap_or_default();
+        let mut slots = Vec::new();
+        for d in 1..=days {
+            for h in &hours {
+                let t = chrono::Local::now().date_naive() + chrono::Duration::days(d);
+                if let Some(dt) = t.and_hms_opt(*h as u32, 0, 0).and_then(|n| n.and_local_timezone(chrono::Local).single()) {
+                    let at = dt.with_timezone(&chrono::Utc).to_rfc3339();
+                    if !posts.iter().any(|p| p.channel == channel && p.scheduled_at[..13] == at[..13]) {
+                        slots.push(at);
+                    }
+                }
+            }
+        }
+        for (r, at) in ready.iter().zip(slots) {
+            let Some(c) = lib.get::<Candidate>("candidates", &r.candidate_id) else { continue };
+            let src = lib.get::<Source>("sources", &c.source_id);
+            let mut p = Post { id: new_id("p"), render_id: Some(r.id.clone()), candidate_id: Some(c.id.clone()), poster_id: None, channel: channel.clone(), scheduled_at: at, status: "planned".into(), title: c.title.clone(), caption: format!("{}\n{}", c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")), created_at: now(), ..Default::default() };
+            if let Some(src) = src {
+                p.caption = p.caption.replace("{source_url}", src.url.as_deref().unwrap_or(""));
+            }
+            lib.save_post(&mut p);
+            n += 1;
+        }
+    }
+    n
+}

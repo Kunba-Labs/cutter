@@ -13,6 +13,8 @@
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 12px/1.4 -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; }
 input, textarea, select, button { font: inherit; color: inherit; }
+/* WebKit paints its own focus ring in the accent colour around form controls; ours is the border. */
+input:focus, textarea:focus, select:focus, button:focus, video:focus { outline: none; }
 a { color: var(--accent-text); text-decoration: none; }
 ::selection { background: var(--sel); }
 ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 4px; }

@@ -53,7 +53,19 @@ export default function Reels({ nav, go }) {
   const toggle = () => { const v = video.current; if (!v) return; if (v.paused) { if (v.currentTime < c.start || v.currentTime > c.end) v.currentTime = c.start; v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); } };
   const seek = (time) => { if (video.current) video.current.currentTime = Math.min(c.end, Math.max(c.start, time)); };
   const [aw, ah] = SPECS[format] || [9, 16];
-  const frameH = 533, frameW = Math.round((frameH * aw) / ah);
+  const stageRef = useRef(null);
+  const [stage, setStage] = useState({ w: 600, h: 560 });
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setStage({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // The frame fills the stage: as tall as it can be, or as wide for landscape.
+  const frameH = Math.max(240, Math.floor(Math.min(stage.h - 24, ((stage.w - 200) * ah) / aw)));
+  const frameW = Math.round((frameH * aw) / ah);
+  const k = frameH / 533; // type and margins scale with the frame
   const srcAspect = (x.meta?.width || 1920) / (x.meta?.height || 1080);
   const vidW = frameH * srcAspect;
   const [drag, setDrag] = useState(null); // { startX, startY, x, y } while the crop window is being dragged
@@ -106,12 +118,12 @@ export default function Reels({ nav, go }) {
       <div className="col grow">
         <div className="panel grow">
           <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><span className="sub">crop</span><input type="range" className="slider" style={{ width: 120 }} min="0" max="1" step="0.01" value={cx} onChange={(e) => patch({ crop: { ...(c.crop || {}), x: +e.target.value } })} title="Horizontal crop position" /></div>
-          <div className="stage">
+          <div className="stage" ref={stageRef}>
             <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
-              {s.settings.captionStyle?.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span>{c.hook}</span></div>}
-              {line.length > 0 && <div className="cap" style={{ bottom: frameH * ((s.settings.captionStyle?.positionPct || 26) / 100 + (format === "tiktok" ? 0.08 : 0)) - 10 }}><span className="line" style={{ fontSize: (s.settings.captionStyle?.size || 42) * (frameH / 1920) * 1.0 }}>{line.map((w, i) => <span key={i}>{t >= w.s && t < w.e ? <b>{w.w}</b> : w.w} </span>)}</span>{s.settings.captionStyle?.translation !== false && trans && <span className="trans">{trans.text}</span>}</div>}
-              {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
+              {s.settings.captionStyle?.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 15 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
+              {line.length > 0 && <div className="cap" style={{ bottom: frameH * ((s.settings.captionStyle?.positionPct || 26) / 100 + (format === "tiktok" ? 0.08 : 0)) - 10 }}><span className="line" style={{ fontSize: (s.settings.captionStyle?.size || 42) * (frameH / 1920) }}>{line.map((w, i) => <span key={i}>{t >= w.s && t < w.e ? <b>{w.w}</b> : w.w} </span>)}</span>{s.settings.captionStyle?.translation !== false && trans && <span className="trans" style={{ fontSize: 11 * k }}>{trans.text}</span>}</div>}
+              {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 10, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
             <div style={{ position: "absolute", right: 16, top: 12, display: "flex", flexDirection: "column", gap: 6, fontSize: 11, color: "var(--muted)", alignItems: "flex-end" }}><span>source {fmt(c.start)} → {fmt(c.end)}</span><span className={dur > s.settings.maxReelS ? "coral" : "mint"}>{dur.toFixed(1)} s of {s.settings.maxReelS} max</span>{renders.map((r) => <a key={r.id} href="#" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>{r.format}.mp4 ▸</a>)}</div>

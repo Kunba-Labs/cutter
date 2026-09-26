@@ -105,7 +105,25 @@ impl Library {
     }
 
     pub fn settings(&self) -> Settings {
-        self.db.lock().settings()
+        let mut st = self.db.lock().settings();
+        // Templates saved before the title fields existed carry the plain defaults;
+        // an untouched built-in takes its title look from the current definition.
+        let plain = CaptionStyle::default();
+        for t in st.caption_templates.iter_mut() {
+            let untouched = t.hook_color == plain.hook_color && t.hook_box_color == plain.hook_box_color && t.hook_size == plain.hook_size && t.hook_font == plain.hook_font && !t.hook_uppercase && !t.hook_italic && t.hook_boxed == plain.hook_boxed;
+            if let Some(b) = untouched.then(|| model::caption_templates().into_iter().find(|b| b.name == t.name)).flatten() {
+                t.hook_font = b.hook_font;
+                t.hook_size = b.hook_size;
+                t.hook_color = b.hook_color;
+                t.hook_boxed = b.hook_boxed;
+                t.hook_box_color = b.hook_box_color;
+                t.hook_uppercase = b.hook_uppercase;
+                t.hook_bold = b.hook_bold;
+                t.hook_italic = b.hook_italic;
+                t.hook_pct = b.hook_pct;
+            }
+        }
+        st
     }
 
     pub fn out_dir(&self) -> PathBuf {

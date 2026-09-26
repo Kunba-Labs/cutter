@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, CATS, FORMATS } from "../store.js";
 import { Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES } from "../ui.jsx";
+import { captionCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
 
@@ -79,10 +80,13 @@ export default function Reels({ nav, go }) {
   // Caption preview: the words of the current segment, current word highlighted.
   const cur = segs.find((g) => t >= g.start && t < g.end);
   const words = !cur ? [] : cur.words?.length ? cur.words : cur.text.split(" ").map((w, i, a) => ({ w, s: cur.start + ((cur.end - cur.start) * i) / a.length, e: cur.start + ((cur.end - cur.start) * (i + 1)) / a.length }));
-  const per = s.settings.captionStyle?.wordsPerLine || 4;
+  const tpl = (s.settings.captionTemplates || []).find((x) => x.name === c.style) || s.settings.captionStyle || {};
+  const per = tpl.wordsPerLine || 4;
   const wi = words.findIndex((w) => t >= w.s && t < w.e);
   const line = wi >= 0 ? words.slice(Math.floor(wi / per) * per, Math.floor(wi / per) * per + per) : [];
   const trans = c.translation?.find((g) => t >= g.start && t < g.end);
+  // One caption language: the translation replaces the spoken words when a language is set and the reel has one.
+  const translated = !!s.settings.translateTo && s.settings.translateTo !== (detail?.transcript?.language || "") && (c.translation?.length || 0) > 0;
   const inWords = segs.filter((g) => g.end > c.start - 5 && g.start < c.end + 5).flatMap((g) => g.words?.length ? g.words : [{ w: g.text, s: g.start, e: g.end }]);
   const snapEnd = () => { const g = segs.find((g) => g.start <= c.end && g.end >= c.end) || segs.filter((g) => g.end <= c.end).pop(); if (g) patch({ end: Math.min(g.end + 0.2, c.start + s.settings.maxReelS) }); };
   const renders = s.renders.filter((r) => r.candidateId === c.id && r.status === "done");
@@ -121,8 +125,8 @@ export default function Reels({ nav, go }) {
           <div className="stage" ref={stageRef}>
             <div className="frame" style={{ width: frameW, height: frameH, cursor: vidW > frameW ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, width: vidW, pointerEvents: "none" }} muted={false} />}
-              {s.settings.captionStyle?.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 17 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
-              {line.length > 0 && <div className="cap" style={{ bottom: frameH * ((s.settings.captionStyle?.positionPct || 26) / 100 + (format === "tiktok" ? 0.08 : 0)) - 10 }}><span className="line" style={{ fontSize: (s.settings.captionStyle?.size || 42) * (frameH / 1920) }}>{line.map((w, i) => <span key={i}>{t >= w.s && t < w.e ? <b>{w.w}</b> : w.w} </span>)}</span>{s.settings.captionStyle?.translation !== false && trans && <span className="trans" style={{ fontSize: 13 * k }}>{trans.text}</span>}</div>}
+              {tpl.hook !== false && c.hook && t - c.start < 2.5 && <div className="hook" style={{ top: frameH * 0.08 }}><span style={{ fontSize: 17 * k, padding: `${4 * k}px ${10 * k}px` }}>{c.hook}</span></div>}
+              {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * ((tpl.positionPct || 26) / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center" }}><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
@@ -154,7 +158,7 @@ export default function Reels({ nav, go }) {
           <Field label="Caption"><Text area rows={3} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
           <Field label="Hashtags"><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
           <div className="grid2">
-            <Field label="Caption style"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default ({s.settings.captionStyle?.preset})</option>{["karaoke", "clean", "boxed", "outline", "lower"].map((p) => <option key={p} value={p}>{p}</option>)}</select></Field>
+            <Field label={<span>Caption style · <a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></span>}><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default ({s.settings.captionStyle?.name})</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
             <Field label="Score"><input className="input" type="number" min="1" max="10" value={c.score} onChange={(e) => patch({ score: +e.target.value })} /></Field>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4, borderTop: "1px solid var(--rule)", paddingTop: 8 }}>

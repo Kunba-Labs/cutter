@@ -4,7 +4,7 @@ import { Panel, Btn, Check, Text, Seg, Dot, Brand } from "../ui.jsx";
 
 const SECTIONS = [["general", "General"], ["engines", "Engines and brain"], ["channels", "Channels"], ["captions", "Captions"], ["posters", "Posters"], ["mcp", "CLI and MCP"]];
 
-export default function Settings() {
+export default function Settings({ go }) {
   const s = useStore();
   const st = s.settings;
   const [sec, setSec] = useState("channels");
@@ -74,15 +74,9 @@ export default function Settings() {
           </>
         )}
         {sec === "captions" && (
-          <Panel title="Caption defaults" sub="applied when a reel has no style of its own">
-            <Row label="Preset"><Seg value={cs.preset} onChange={(v) => patch({ captionStyle: { preset: v } })} options={[["karaoke", "Karaoke"], ["clean", "Clean"], ["boxed", "Boxed"], ["outline", "Outline"], ["lower", "Lower third"]]} /></Row>
-            <Row label="Size"><input type="range" className="slider" style={{ width: 200 }} min="24" max="72" value={cs.size} onChange={(e) => patch({ captionStyle: { size: +e.target.value } })} /><span>{cs.size} px of 1920</span></Row>
-            <Row label="Position from bottom"><input type="range" className="slider" style={{ width: 200 }} min="8" max="50" value={cs.positionPct} onChange={(e) => patch({ captionStyle: { positionPct: +e.target.value } })} /><span>{cs.positionPct}%</span></Row>
-            <Row label="Words per line"><input type="range" className="slider" style={{ width: 200 }} min="1" max="8" value={cs.wordsPerLine} onChange={(e) => patch({ captionStyle: { wordsPerLine: +e.target.value } })} /><span>{cs.wordsPerLine}</span></Row>
-            <Row label="Highlight colour">{["#3EF2A3", "#F52ACB", "#FFC24D", "#37D2E8", "#FFFFFF"].map((c) => <span key={c} onClick={() => patch({ captionStyle: { highlight: c } })} style={{ width: 16, height: 16, borderRadius: 3, background: c, cursor: "pointer", outline: cs.highlight === c ? "2px solid #fff" : "none" }} />)}</Row>
-            <Row label="Font"><Text style={W} value={cs.font} onCommit={(v) => patch({ captionStyle: { font: v } })} /><span className="hint">an installed font name; Arabic and Urdu use Geeza Pro</span></Row>
-            <Row label=""><Check label="Hook at the top for the first 2.5 s" checked={cs.hook} onChange={(v) => patch({ captionStyle: { hook: v } })} /></Row>
-            <Row label=""><Check label="Watermark with the channel name" checked={cs.watermark} onChange={(v) => patch({ captionStyle: { watermark: v } })} /></Row>
+          <Panel title="Captions" sub="the default template, editable with a live preview">
+            <Row label="Default template"><select className="input" style={W} value={st.captionStyle?.name} onChange={(e) => { const t = (st.captionTemplates || []).find((x) => x.name === e.target.value); if (t) patch({ captionStyle: t }); }}>{(st.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select><Btn onClick={() => go("style")}>Edit templates</Btn></Row>
+            <span className="hint">Templates hold font, size, position, words per line, colours, outline or box, caps, the hook and the watermark. Change them on the Style screen; pick one per reel in its inspector.</span>
           </Panel>
         )}
         {sec === "posters" && (

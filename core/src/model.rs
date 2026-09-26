@@ -207,33 +207,62 @@ pub struct Job {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CaptionStyle {
-    /// karaoke | clean | boxed | outline | lower
+    /// Template name; a reel's `style` refers to one of these.
+    pub name: String,
+    /// karaoke (current word highlighted) | lower (left-aligned bar). Kept for older libraries.
     pub preset: String,
+    pub font: String,
     pub size: i64,
     /// Distance from the bottom as a percentage of the frame height.
     pub position_pct: i64,
     pub words_per_line: i64,
+    pub text_color: String,
     pub highlight: String,
-    pub font: String,
-    pub translation: bool,
+    pub outline_px: i64,
+    pub boxed: bool,
+    pub uppercase: bool,
+    pub bold: bool,
+    /// center | left
+    pub align: String,
     pub hook: bool,
     pub watermark: bool,
+    pub translation: bool,
 }
 
 impl Default for CaptionStyle {
     fn default() -> Self {
         Self {
+            name: "Karaoke".into(),
             preset: "karaoke".into(),
+            font: "Helvetica Neue".into(),
             size: 42,
             position_pct: 26,
             words_per_line: 4,
+            text_color: "#FFFFFF".into(),
             highlight: "#3EF2A3".into(),
-            font: "Helvetica Neue".into(),
-            translation: true,
+            outline_px: 3,
+            boxed: false,
+            uppercase: false,
+            bold: true,
+            align: "center".into(),
             hook: true,
             watermark: true,
+            translation: false,
         }
     }
+}
+
+/// The looks that work on Shorts, Reels and TikTok. Editable copies live in settings.
+pub fn caption_templates() -> Vec<CaptionStyle> {
+    let base = CaptionStyle::default();
+    vec![
+        base.clone(),
+        CaptionStyle { name: "Bold caps".into(), size: 54, position_pct: 34, words_per_line: 3, highlight: "#FFD400".into(), outline_px: 6, uppercase: true, ..base.clone() },
+        CaptionStyle { name: "Clean".into(), size: 40, words_per_line: 5, highlight: "#FFFFFF".into(), outline_px: 2, bold: false, ..base.clone() },
+        CaptionStyle { name: "Boxed".into(), size: 40, words_per_line: 4, highlight: "#3EF2A3".into(), outline_px: 0, boxed: true, ..base.clone() },
+        CaptionStyle { name: "Magenta".into(), size: 46, highlight: "#F52ACB".into(), outline_px: 5, ..base.clone() },
+        CaptionStyle { name: "Lower third".into(), preset: "lower".into(), size: 36, position_pct: 12, words_per_line: 6, highlight: "#FFFFFF".into(), outline_px: 0, boxed: true, align: "left".into(), ..base.clone() },
+    ]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -280,6 +309,7 @@ pub struct Settings {
     pub auto_approve_score: i64,
     pub translate_to: String,
     pub caption_style: CaptionStyle,
+    pub caption_templates: Vec<CaptionStyle>,
     pub formats: Vec<String>,
     pub channel_name: String,
     pub glossary: Vec<String>,
@@ -308,6 +338,7 @@ impl Default for Settings {
             auto_approve_score: 0,
             translate_to: String::new(),
             caption_style: CaptionStyle::default(),
+            caption_templates: caption_templates(),
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
             channel_name: String::new(),
             glossary: vec!["Allah".into(), "salawat".into(), "dhikr".into(), "tafsir".into(), "sabr".into()],

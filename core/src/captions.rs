@@ -52,18 +52,15 @@ pub fn build(c: &CaptionSpec) -> String {
     let bottom = (c.height as f64 * (st.position_pct as f64 / 100.0 + c.extra_bottom)) as i64;
     let white = "&H00FFFFFF";
     let hl = ass_color(&st.highlight);
-    // Primary colour, outline, back colour, border style, per preset.
-    let (primary, outline_w, shadow, border_style, back) = match st.preset.as_str() {
-        "boxed" => ("&H00141414", 0, 0, 3, "&H00FFFFFF"),
-        "outline" => (hl.as_str(), 5, 0, 1, "&H80000000"),
-        "lower" => (white, 0, 0, 3, "&H99000000"),
-        _ => (white, 3, 1, 1, "&H80000000"),
-    };
-    let align = if st.preset == "lower" { 1 } else { 2 };
-    let margin_l = if st.preset == "lower" { 60 } else { 40 };
+    let text = ass_color(&st.text_color);
+    let primary = text.as_str();
+    let (outline_w, shadow, border_style, back) = if st.boxed { (0, 0, 3, "&H99000000") } else { (st.outline_px.max(0), if st.outline_px > 0 { 1 } else { 0 }, 1, "&H80000000") };
+    let align = if st.align == "left" || st.preset == "lower" { 1 } else { 2 };
+    let margin_l = if align == 1 { 60 } else { 40 };
+    let bold = if st.bold { -1 } else { 0 };
     let mut out = format!(
         "[Script Info]\nScriptType: v4.00+\nPlayResX: {w}\nPlayResY: {h}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
-Style: Main,{font},{size},{primary},{white},&H00000000,{back},-1,0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_l},40,{bottom},1\n\
+Style: Main,{font},{size},{primary},{white},&H00000000,{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_l},40,{bottom},1\n\
 Style: Trans,{font},{tsize},&H00F0F0F0,{white},&H00000000,&H99000000,0,0,0,0,100,100,0,0,3,0,0,2,60,60,{tbottom},1\n\
 Style: Hook,{font},{hsize},&H00FFFFFF,{white},&H00000000,&H99000000,-1,0,0,0,100,100,0,0,3,0,0,8,60,60,{htop},1\n\
 Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100,100,0,0,3,0,0,1,40,40,60,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
@@ -84,7 +81,8 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100
     if c.use_translation && !translated.is_empty() {
         // Translated captions: one line per transcript segment, no word timing to highlight.
         for t in translated {
-            out.push_str(&format!("Dialogue: 0,{},{},Main,,0,0,0,,{}\n", ts(t.start.max(c.clip_start) - c.clip_start), ts(t.end.min(c.clip_end) - c.clip_start), esc(&t.text)));
+            let line = if st.uppercase { t.text.to_uppercase() } else { t.text.clone() };
+            out.push_str(&format!("Dialogue: 0,{},{},Main,,0,0,0,,{}\n", ts(t.start.max(c.clip_start) - c.clip_start), ts(t.end.min(c.clip_end) - c.clip_start), esc(&line)));
         }
     } else {
         // Spoken words inside the cut, grouped into lines of N words, the current word highlighted.
@@ -115,7 +113,10 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100
                 let text: Vec<String> = line
                     .iter()
                     .enumerate()
-                    .map(|(j, (w, _, _))| if j == k && st.preset != "clean" && st.preset != "boxed" { format!("{hl_tag}{}{base_tag}", esc(w)) } else { esc(w) })
+                    .map(|(j, (w, _, _))| {
+                        let w = if st.uppercase { w.to_uppercase() } else { w.clone() };
+                        if j == k && !st.highlight.eq_ignore_ascii_case(&st.text_color) { format!("{hl_tag}{}{base_tag}", esc(&w)) } else { esc(&w) }
+                    })
                     .collect();
                 out.push_str(&format!("Dialogue: 0,{},{},Main,,0,0,0,,{rtl_tag}{}\n", ts(start), ts(end), text.join(" ")));
             }

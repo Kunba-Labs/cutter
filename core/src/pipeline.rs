@@ -248,7 +248,8 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let out = dir.join(format!("{format}.mp4"));
     let lead = 0.25;
     let (start, end) = ((c.start - lead).max(0.0), (c.end + 0.35).min(src.duration.unwrap_or(f64::MAX)));
-    let style = c.style.as_deref().map(|p| CaptionStyle { preset: p.into(), ..s.caption_style.clone() }).unwrap_or(s.caption_style.clone());
+    // The reel's template by name, else the library default.
+    let style = c.style.as_deref().and_then(|name| s.caption_templates.iter().find(|t| t.name == name).cloned()).unwrap_or(s.caption_style.clone());
     let ass = dir.join(format!("{format}.ass"));
     // One caption language: the translation when one is chosen and this reel has it, else the spoken words.
     // The language decides font and size (RTL scripts), so it must match what is actually drawn.

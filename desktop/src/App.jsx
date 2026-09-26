@@ -9,6 +9,7 @@ import Queue from "./screens/Queue.jsx";
 import Publish from "./screens/Publish.jsx";
 import Posters from "./screens/Posters.jsx";
 import Settings from "./screens/Settings.jsx";
+import Style from "./screens/Style.jsx";
 import AddSource from "./screens/AddSource.jsx";
 
 /* A screen that throws shows the error and a way back instead of a blank window. */
@@ -64,6 +65,7 @@ export default function App() {
     publish: <Publish {...props} />,
     queue: <Queue {...props} />,
     settings: <Settings {...props} />,
+    style: <Style {...props} />,
   }[nav.tab];
 
   return (

@@ -670,6 +670,9 @@ impl Library {
                     let mut v = serde_json::to_value(&st).unwrap();
                     merge(&mut v, &a["patch"]);
                     st = serde_json::from_value(v).map_err(|e| e.to_string())?;
+                    if st.caption_templates.is_empty() {
+                        st.caption_templates = model::caption_templates();
+                    }
                     self.save_settings(&st);
                     let _ = std::fs::create_dir_all(&st.out_dir);
                 }

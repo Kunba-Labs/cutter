@@ -70,4 +70,5 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - ffmpeg drawtext countdown: `%{eif:…}` with `\:` and `\,` escaped inside the filter.
 - Tauri `dragDropEnabled` is false so the webview gets its own drops.
 - Release profile has no `lto` and no `strip`: on this toolchain (rustc 1.96, Xcode 27) `lto = true` corrupts proc-macro dylibs (darling, ctor: "mis-aligned LINKEDIT string pool", surfacing as E0463). `cargo clean --release` after changing the profile.
+- The desktop executable is `cuttar-desktop` (tauri.conf `mainBinaryName`), never `Cuttar`: on the case-insensitive disk that name overwrote `target/release/cuttar`, the CLI, and every CLI call launched a second app.
 - Two processes must never write the same output file: cancel or wait for a job before queueing the same one with different args (`enqueue` only dedupes identical args).

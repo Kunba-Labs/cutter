@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Regenerate every Cuttar icon asset from brand/icon-master.png (membox's recipe).
+
+The master is generated art: a dark rounded square on a light background. We
+find the dark body, crop it square, cut Apple's squircle ourselves, inset it on
+the macOS 824/1024 grid, and write the Tauri sets (prod + DEV-badged).
+
+Usage: bin/icons [path/to/master.png]      needs: uv (pillow) + iconutil
+"""
+import os, subprocess, sys
+from PIL import Image, ImageDraw
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MASTER = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "brand", "icon-master.png")
+OUT = os.path.join(ROOT, "brand", "generated")
+TAURI_ICONS = os.path.join(ROOT, "desktop", "src-tauri", "icons")
+SQUIRCLE_N, SS, MAC_INSET = 5.0, 4, 824 / 1024
+
+
+def artwork_bbox(im, threshold=110):
+    mask = im.convert("L").point(lambda p: 255 if p < threshold else 0)
+    bbox = mask.getbbox()
+    if bbox is None:
+        raise SystemExit("no dark artwork found in master")
+    return bbox
+
+
+def square_crop(im, bbox):
+    l, t, r, b = bbox
+    cx, cy, half = (l + r) / 2, (t + b) / 2, max(r - l, b - t) / 2
+    return im.crop((round(cx - half), round(cy - half), round(cx + half), round(cy + half)))
+
+
+def squircle_mask(size):
+    n = size * SS
+    m = Image.new("L", (n, n), 0)
+    px = m.load()
+    half = n / 2
+    for y in range(n):
+        v = abs((y + 0.5 - half) / half)
+        if v >= 1.0:
+            continue
+        u = (1.0 - v ** SQUIRCLE_N) ** (1.0 / SQUIRCLE_N)
+        for x in range(int(half - u * half), int(half + u * half)):
+            px[x, y] = 255
+    return m.resize((size, size), Image.LANCZOS)
+
+
+def iconset(canvas, folder, icns):
+    os.makedirs(folder, exist_ok=True)
+    for pt in (16, 32, 128, 256, 512):
+        for scale in (1, 2):
+            px = pt * scale
+            canvas.resize((px, px), Image.LANCZOS).save(os.path.join(folder, f"icon_{pt}x{pt}{'@2x' if scale == 2 else ''}.png"))
+    subprocess.run(["iconutil", "-c", "icns", folder, "-o", icns], check=True)
+
+
+def tauri_set(canvas, folder, icns_src):
+    os.makedirs(folder, exist_ok=True)
+    for name, px in (("32x32.png", 32), ("128x128.png", 128), ("128x128@2x.png", 256), ("icon.png", 1024)):
+        canvas.resize((px, px), Image.LANCZOS).convert("RGBA").save(os.path.join(folder, name))
+    dst = os.path.join(folder, "icon.icns")
+    if os.path.abspath(icns_src) != os.path.abspath(dst):
+        subprocess.run(["cp", icns_src, dst], check=True)
+
+
+def main():
+    src = Image.open(MASTER).convert("RGB")
+    art1024 = square_crop(src, artwork_bbox(src)).resize((1024, 1024), Image.LANCZOS)
+    mark = art1024.convert("RGBA")
+    mark.putalpha(squircle_mask(1024))
+    os.makedirs(OUT, exist_ok=True)
+    mark.save(os.path.join(OUT, "mark-1024.png"))
+
+    inset = round(1024 * MAC_INSET)
+    canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    off = (1024 - inset) // 2
+    canvas.paste(mark.resize((inset, inset), Image.LANCZOS), (off, off))
+
+    mac = os.path.join(OUT, "mac")
+    os.makedirs(mac, exist_ok=True)
+    iconset(canvas, os.path.join(mac, "AppIcon.iconset"), os.path.join(mac, "AppIcon.icns"))
+    tauri_set(canvas, os.path.join(OUT, "tauri"), os.path.join(mac, "AppIcon.icns"))
+    tauri_set(canvas, TAURI_ICONS, os.path.join(mac, "AppIcon.icns"))
+
+    # DEV identity: same mark with a mint badge, so the two Dock icons differ.
+    badged = canvas.copy()
+    d = ImageDraw.Draw(badged)
+    d.rounded_rectangle([600, 680, 924, 820], radius=36, fill=(62, 242, 163, 255))
+    try:
+        from PIL import ImageFont
+        font = ImageFont.truetype("/System/Library/Fonts/SFCompact.ttf", 96)
+    except Exception:
+        font = None
+    d.text((762, 750), "DEV", fill=(20, 6, 26, 255), anchor="mm", font=font)
+    dev = os.path.join(OUT, "tauri-dev")
+    iconset(badged, os.path.join(dev, "AppIcon.iconset"), os.path.join(dev, "icon.icns"))
+    tauri_set(badged, dev, os.path.join(dev, "icon.icns"))
+    tauri_set(badged, os.path.join(ROOT, "desktop", "src-tauri", "icons-dev"), os.path.join(dev, "icon.icns"))
+
+    sheet = Image.new("RGBA", (1024, 300), (26, 29, 42, 255))
+    x = 24
+    for px in (256, 128, 64, 32, 16):
+        sheet.alpha_composite(canvas.resize((px, px), Image.LANCZOS), (x, 24))
+        x += px + 24
+    sheet.save(os.path.join(OUT, "contact-sheet.png"))
+    print(f"wrote {OUT} and {TAURI_ICONS}")
+
+
+if __name__ == "__main__":
+    main()

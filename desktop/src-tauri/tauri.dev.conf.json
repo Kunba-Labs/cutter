@@ -1,5 +1,13 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Cuttar Dev",
-  "identifier": "com.cuttar.desktop.dev"
+  "identifier": "com.cuttar.desktop.dev",
+  "bundle": {
+    "icon": [
+      "icons-dev/32x32.png",
+      "icons-dev/128x128.png",
+      "icons-dev/128x128@2x.png",
+      "icons-dev/icon.icns"
+    ]
+  }
 }

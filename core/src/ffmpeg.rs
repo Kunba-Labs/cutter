@@ -12,6 +12,7 @@ pub struct Probe {
     pub duration: f64,
     pub width: i64,
     pub height: i64,
+    pub has_audio: bool,
 }
 
 pub fn probe(path: &Path) -> Result<Probe, String> {
@@ -22,6 +23,7 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
         duration: v["format"]["duration"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0.0),
         width: video["width"].as_i64().unwrap_or(1920),
         height: video["height"].as_i64().unwrap_or(1080),
+        has_audio: v["streams"].as_array().into_iter().flatten().any(|s| s["codec_type"] == "audio"),
     })
 }
 
@@ -62,6 +64,8 @@ pub struct RenderSpec<'a> {
     pub ass: Option<&'a Path>,
     /// A still appended after the cut, for this many seconds, with a short fade.
     pub end_card: Option<(&'a Path, f64)>,
+    /// The source has an audio stream (a screen recording may not).
+    pub has_audio: bool,
 }
 
 /// Aspect key for the end-card set: "9x16" | "4x5" | "16x9".
@@ -88,15 +92,25 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
                 // The cut, then the card as a second clip (silent audio), joined with a fade.
                 cmd.args(["-loop", "1", "-framerate", "30", "-t", &format!("{secs:.2}")]).arg("-i").arg(card);
                 cmd.args(["-f", "lavfi", "-t", &format!("{secs:.2}"), "-i", "anullsrc=r=48000:cl=stereo"]);
+                // A silent source stands in for a video that has no audio stream.
+                let a0 = if r.has_audio {
+                    "[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a0]".to_string()
+                } else {
+                    cmd.args(["-f", "lavfi", "-t", &format!("{dur:.3}"), "-i", "anullsrc=r=48000:cl=stereo"]);
+                    "[3:a]anull[a0]".to_string()
+                };
                 let fc = format!(
-                    "[0:v]{vf},setsar=1,fps=30,format=yuv420p[v0];[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a0];[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps=30,format=yuv420p,fade=t=in:st=0:d=0.35[v1];[v0][a0][v1][2:a]concat=n=2:v=1:a=1[v][a]",
+                    "[0:v]{vf},setsar=1,fps=30,format=yuv420p[v0];{a0};[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps=30,format=yuv420p,fade=t=in:st=0:d=0.35[v1];[v0][a0][v1][2:a]concat=n=2:v=1:a=1[v][a]",
                     w = r.width,
                     h = r.height
                 );
                 cmd.args(["-filter_complex", &fc, "-map", "[v]", "-map", "[a]"]);
             }
             None => {
-                cmd.args(["-vf", &vf, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]);
+                cmd.args(["-vf", &vf]);
+                if r.has_audio {
+                    cmd.args(["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]);
+                }
             }
         }
         cmd.args(encoder)

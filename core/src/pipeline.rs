@@ -120,6 +120,7 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
         src.duration = Some(probe.duration);
         src.meta["width"] = json!(probe.width);
         src.meta["height"] = json!(probe.height);
+        src.meta["hasAudio"] = json!(probe.has_audio);
         Ok(())
     })();
     if let Err(mut e) = res {
@@ -279,8 +280,9 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let jid = job.id.clone();
     let card_path = s.end_card.enabled.then(|| s.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(PathBuf::from)).flatten().filter(|p| p.exists());
     let end_card = card_path.as_deref().map(|p| (p, s.end_card.seconds.clamp(0.5, 8.0)));
+    let has_audio = src.meta["hasAudio"].as_bool().unwrap_or_else(|| ffmpeg::probe(&video).map(|p| p.has_audio).unwrap_or(true));
     let res = ffmpeg::render(
-        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), ass: Some(&ass), end_card },
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), ass: Some(&ass), end_card, has_audio },
         |p, m| lib.job_progress(&jid, p, m),
         |pid| lib.register_child(&jid, pid),
     );

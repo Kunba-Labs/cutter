@@ -20,6 +20,8 @@ export default function Reels({ nav, go }) {
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [hold, setHold] = useState(false);
+  const [applyScope, setApplyScope] = useState("source");
+  const [applyKeys, setApplyKeys] = useState(["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
   const video = useRef(null);
 
@@ -93,8 +95,9 @@ export default function Reels({ nav, go }) {
   const cy = drag ? drag.y : pending?.y ?? c.crop?.y ?? 0.5;
   const left = Math.min(0, Math.max(frameW - vidW, frameW / 2 - cx * vidW));
   // Drag the picture inside the frame to move the crop: dragging left shows more of the right side.
-  const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ startX: e.clientX, startY: e.clientY, x: cx, y: cy, moved: false }); };
-  const onMove = (e) => { if (!drag) return; e.preventDefault(); const dx = (e.clientX - drag.startX) / vidW; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x - dx)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 }); };
+  const onDown = (e) => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ startX: e.clientX, startY: e.clientY, x0: cx, x: cx, y: cy, moved: false }); };
+  // The picture follows the pointer one to one: the new centre is the grab-time centre minus the distance moved.
+  const onMove = (e) => { if (!drag) return; e.preventDefault(); const dx = (e.clientX - drag.startX) / vidW; setDrag({ ...drag, x: Math.min(1, Math.max(0, drag.x0 - dx)), moved: drag.moved || Math.abs(e.clientX - drag.startX) > 3 }); };
   const onUp = () => { if (!drag) return; if (drag.moved) { setPending((p) => ({ ...(p || {}), x: drag.x, y: drag.y })); patch({ crop: { ...(c.crop || {}), x: +drag.x.toFixed(3), y: +drag.y.toFixed(3) } }); } else toggle(); setDrag(null); };
   // Drag the caption block up or down: a per-reel position, the template's otherwise.
   const [capDrag, setCapDrag] = useState(null);
@@ -189,7 +192,14 @@ export default function Reels({ nav, go }) {
               <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
               <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
             </div>
-            <span className="hint">Drag the captions or the picture in the preview to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a></>}</span>
+            <span className="hint">Drag the captions or the picture in the preview to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 && <> Crop at {Math.round((c.crop?.x ?? 0.5) * 100)}% · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5 })); patch({ crop: { x: 0.5, y: 0.5 } }); }}>centre</a>.</>}</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "8px 10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><b style={{ fontSize: 13 }}>Apply to the queue</b><span className="grow" /><Seg value={applyScope} onChange={setApplyScope} options={[["source", "This lecture"], ["approved", "Approved"], ["library", "Everything"]]} /></div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
+                {[["style", "Captions template"], ["hookStyle", "Title template"], ["captionPct", "Caption position"], ["crop", "Crop"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
+              </div>
+              <Btn small primary disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Applied to ${n} reels`); }}>Apply to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
+            </div>
           </div>
           <div className="insp-group">
             <div className="insp-head">Post</div>

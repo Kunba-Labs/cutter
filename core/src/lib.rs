@@ -414,6 +414,41 @@ impl Library {
                 self.save_candidate(&mut c);
                 json!(c)
             }
+            "apply_look" => {
+                // Copy this reel's adjustments onto the others: keys = style, hookStyle, captionPct, crop, formats;
+                // scope = source (same lecture) | approved | library.
+                let id = id()?;
+                let from: Candidate = self.get("candidates", &id).ok_or("no such candidate")?;
+                let keys: Vec<String> = a["keys"].as_array().map(|k| k.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_else(|| vec!["style".into(), "hookStyle".into(), "captionPct".into()]);
+                let scope = s("scope").unwrap_or_else(|| "source".into());
+                let mut n = 0;
+                for mut c in self.all::<Candidate>("candidates") {
+                    if c.id == from.id || c.discarded {
+                        continue;
+                    }
+                    let in_scope = match scope.as_str() {
+                        "approved" => c.approved,
+                        "library" => true,
+                        _ => c.source_id == from.source_id,
+                    };
+                    if !in_scope {
+                        continue;
+                    }
+                    for k in &keys {
+                        match k.as_str() {
+                            "style" => c.style = from.style.clone(),
+                            "hookStyle" => c.hook_style = from.hook_style.clone(),
+                            "captionPct" => c.caption_pct = from.caption_pct,
+                            "crop" => c.crop = from.crop.clone(),
+                            "formats" => c.formats = from.formats.clone(),
+                            _ => {}
+                        }
+                    }
+                    self.save_candidate(&mut c);
+                    n += 1;
+                }
+                json!(n)
+            }
             "approve" => {
                 let ids: Vec<String> = a["ids"].as_array().map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_else(|| s("id").into_iter().collect());
                 let approved = a["approved"].as_bool().unwrap_or(true);

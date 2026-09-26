@@ -48,6 +48,7 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("search_transcripts", "Full-text search over every transcript; returns source ids.", r#"{"query":{"type":"string"}}"#, "query", "search"),
     ("update_candidate", "Edit a reel candidate: patch may hold start, end, title, hook, caption, hashtags, category, crop {x,y}, style, formats.", r#"{"id":{"type":"string"},"patch":{"type":"object"}}"#, "id,patch", "update_candidate"),
     ("add_candidate", "Hand-pick a reel by time range on a source.", r#"{"sourceId":{"type":"string"},"start":{"type":"number"},"end":{"type":"number"},"title":{"type":"string"}}"#, "sourceId,start,end", "add_candidate"),
+    ("apply_look", "Copy one reel's adjustments (keys: style, hookStyle, captionPct, crop, formats) onto others; scope: source | approved | library.", r#"{"id":{"type":"string"},"keys":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"}}"#, "id", "apply_look"),
     ("approve", "Approve (or un-approve) candidates by id.", r#"{"ids":{"type":"array","items":{"type":"string"}},"approved":{"type":"boolean"}}"#, "ids", "approve"),
     ("approve_above", "Approve every candidate of a source scoring at least `score`.", r#"{"sourceId":{"type":"string"},"score":{"type":"integer"}}"#, "sourceId", "approve_above"),
     ("discard", "Discard a candidate (toggle).", r#"{"id":{"type":"string"}}"#, "id", "discard"),

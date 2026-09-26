@@ -40,11 +40,17 @@ pub fn format_spec(format: &str) -> (i64, i64, f64) {
 /// crop=w:h:x:y for a source of `sw`×`sh` to the target aspect, centred on
 /// `cx` (0..1 across the width) and `cy` (0..1 down the height).
 pub fn crop_filter(sw: i64, sh: i64, tw: i64, th: i64, cx: f64, cy: f64) -> String {
+    crop_filter_z(sw, sh, tw, th, cx, cy, 1.0)
+}
+
+/// Same, zoomed in by `z` (1 = the largest window that fits, 2 = half of it).
+pub fn crop_filter_z(sw: i64, sh: i64, tw: i64, th: i64, cx: f64, cy: f64, z: f64) -> String {
+    let z = z.clamp(1.0, 4.0);
     let target = tw as f64 / th as f64;
     let source = sw as f64 / sh as f64;
-    let (cw, ch) = if source > target { ((sh as f64 * target).round() as i64, sh) } else { (sw, (sw as f64 / target).round() as i64) };
-    let cw = (cw / 2) * 2;
-    let ch = (ch / 2) * 2;
+    let (cw, ch) = if source > target { (sh as f64 * target, sh as f64) } else { (sw as f64, sw as f64 / target) };
+    let cw = ((cw / z).round() as i64 / 2) * 2;
+    let ch = ((ch / z).round() as i64 / 2) * 2;
     let x = ((cx * sw as f64) - cw as f64 / 2.0).round().clamp(0.0, (sw - cw) as f64) as i64;
     let y = ((cy * sh as f64) - ch as f64 / 2.0).round().clamp(0.0, (sh - ch) as f64) as i64;
     format!("crop={cw}:{ch}:{x}:{y}")
@@ -61,6 +67,7 @@ pub struct RenderSpec<'a> {
     pub src_h: i64,
     pub crop_x: f64,
     pub crop_y: f64,
+    pub crop_z: f64,
     pub ass: Option<&'a Path>,
     /// A still appended after the cut, for this many seconds, with a short fade.
     pub end_card: Option<(&'a Path, f64)>,
@@ -77,7 +84,7 @@ pub fn aspect_key(width: i64, height: i64) -> &'static str {
 /// `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
 pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<(), String> {
     let dur = (r.end - r.start).max(0.1);
-    let mut vf = vec![crop_filter(r.src_w, r.src_h, r.width, r.height, r.crop_x, r.crop_y), format!("scale={}:{}:flags=lanczos", r.width, r.height)];
+    let mut vf = vec![crop_filter_z(r.src_w, r.src_h, r.width, r.height, r.crop_x, r.crop_y, r.crop_z), format!("scale={}:{}:flags=lanczos", r.width, r.height)];
     if let Some(a) = r.ass {
         // libass wants the path escaped for the filter graph: ':' and '\' and quotes.
         vf.push(format!("ass='{}'", ass_path_arg(a)));
@@ -163,8 +170,8 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
 }
 
 /// One frame at `t`, cropped like the reel, as JPEG.
-pub fn cover(src: &Path, t: f64, out: &Path, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64) -> Result<(), String> {
-    let vf = format!("{},scale={}:{}", crop_filter(src_w, src_h, width, height, cx, cy), width, height);
+pub fn cover(src: &Path, t: f64, out: &Path, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64, z: f64) -> Result<(), String> {
+    let vf = format!("{},scale={}:{}", crop_filter_z(src_w, src_h, width, height, cx, cy, z), width, height);
     crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "3"]).arg(out)).map(|_| ())
 }
 
@@ -325,6 +332,8 @@ mod tests {
         assert_eq!(crop_filter(1920, 1080, 1080, 1350, 0.5, 0.5), "crop=864:1080:528:0");
         assert_eq!(crop_filter(1080, 1920, 1920, 1080, 0.5, 0.5), "crop=1080:608:0:656");
         assert_eq!(format_spec("tiktok").2, 0.08);
+        assert_eq!(crop_filter_z(1920, 1080, 1080, 1920, 0.5, 0.5, 2.0), "crop=304:540:808:270");
+        assert_eq!(crop_filter_z(1920, 1080, 1080, 1920, 0.5, 0.0, 2.0), "crop=304:540:808:0");
         let lines = vec!["Begint zo".to_string(), "Tafsir".to_string(), "vrijdag".to_string()];
         let a = waiting_ass(&WaitingSpec { poster: Path::new("p.png"), out: Path::new("o.mp4"), width: 1920, height: 1080, lines: &lines, countdown_from: Some(3725), loop_s: 3, font: "Helvetica" }, true);
         assert!(a.contains("Count,,0,0,0,,1:02:05") && a.contains("Count,,0,0,0,,1:02:03") && a.contains("Title,,0,0,0,,Tafsir"));

@@ -282,14 +282,14 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let end_card = card_path.as_deref().map(|p| (p, s.end_card.seconds.clamp(0.5, 8.0)));
     let has_audio = src.meta["hasAudio"].as_bool().unwrap_or_else(|| ffmpeg::probe(&video).map(|p| p.has_audio).unwrap_or(true));
     let res = ffmpeg::render(
-        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), ass: Some(&ass), end_card, has_audio },
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: Some(&ass), end_card, has_audio },
         |p, m| lib.job_progress(&jid, p, m),
         |pid| lib.register_child(&jid, pid),
     );
     match res {
         Ok(()) => {
             let cover = dir.join(format!("{format}-cover.jpg"));
-            let _ = ffmpeg::cover(&video, c.start + 1.0, &cover, sw, sh, w, h, c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5));
+            let _ = ffmpeg::cover(&video, c.start + 1.0, &cover, sw, sh, w, h, c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5), c.crop["z"].as_f64().unwrap_or(1.0));
             let srt = dir.join("captions.srt");
             let _ = std::fs::write(&srt, captions::srt(&t.segments, start, end));
             let _ = std::fs::write(dir.join("caption.txt"), format!("{}\n\n{}\n{}", c.title, c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")));

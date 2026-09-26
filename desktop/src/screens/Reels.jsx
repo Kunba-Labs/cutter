@@ -60,7 +60,7 @@ export default function Reels({ nav, go }) {
   const left = Math.min(0, Math.max(frameW - vidW, frameW / 2 - cx * vidW));
   // Caption preview: the words of the current segment, current word highlighted.
   const cur = segs.find((g) => t >= g.start && t < g.end);
-  const words = cur?.words?.length ? cur.words : (cur?.text || "").split(" ").map((w, i, a) => ({ w, s: cur.start + ((cur.end - cur.start) * i) / a.length, e: cur.start + ((cur.end - cur.start) * (i + 1)) / a.length }));
+  const words = !cur ? [] : cur.words?.length ? cur.words : cur.text.split(" ").map((w, i, a) => ({ w, s: cur.start + ((cur.end - cur.start) * i) / a.length, e: cur.start + ((cur.end - cur.start) * (i + 1)) / a.length }));
   const per = s.settings.captionStyle?.wordsPerLine || 4;
   const wi = words.findIndex((w) => t >= w.s && t < w.e);
   const line = wi >= 0 ? words.slice(Math.floor(wi / per) * per, Math.floor(wi / per) * per + per) : [];

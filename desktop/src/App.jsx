@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Component, useEffect, useState } from "react";
 import { useStore, act, refresh } from "./store.js";
 import { Btn, I } from "./ui.jsx";
 import Library from "./screens/Library.jsx";
@@ -10,6 +10,23 @@ import Publish from "./screens/Publish.jsx";
 import Posters from "./screens/Posters.jsx";
 import Settings from "./screens/Settings.jsx";
 import AddSource from "./screens/AddSource.jsx";
+
+/* A screen that throws shows the error and a way back instead of a blank window. */
+class Boundary extends Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidUpdate(prev) { if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null }); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="panel grow"><div className="empty" style={{ userSelect: "text" }}>
+        <b className="coral">This screen hit a bug.</b><br />
+        <span className="mono">{String(this.state.error?.message || this.state.error)}</span><br /><br />
+        <Btn onClick={this.props.onHome}>Back to the library</Btn>
+      </div></div>
+    );
+  }
+}
 
 const TABS = [["library", "Library"], ["inbox", "Inbox"], ["reels", "Reels"], ["posters", "Posters"], ["publish", "Publish"], ["queue", "Queue"]];
 
@@ -69,7 +86,7 @@ export default function App() {
         <Btn primary small onClick={() => setAdding(true)}>{I.plus} Add</Btn>
         <Btn icon small className={nav.tab === "settings" ? "primary" : ""} onClick={() => go("settings")} aria-label="Settings">{I.gear}</Btn>
       </div>
-      {screen}
+      <Boundary resetKey={`${nav.tab}:${nav.sourceId}:${nav.view}`} onHome={() => go("library", { sourceId: null, view: "reels" })}>{screen}</Boundary>
       {adding && <AddSource onClose={() => setAdding(false)} go={go} />}
       {s.toast && <div style={{ position: "fixed", right: 16, bottom: 16, padding: "8px 12px", borderRadius: 4, background: s.toast.kind === "err" ? "#3B1F2A" : "var(--head)", border: `1px solid ${s.toast.kind === "err" ? "var(--coral)" : s.toast.kind === "ok" ? "var(--mint)" : "var(--rule)"}`, fontSize: 11.5, maxWidth: 420, zIndex: 20 }}>{s.toast.msg}</div>}
     </div>

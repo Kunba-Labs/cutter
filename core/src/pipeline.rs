@@ -250,7 +250,7 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let (start, end) = ((c.start - lead).max(0.0), (c.end + 0.35).min(src.duration.unwrap_or(f64::MAX)));
     let style = c.style.as_deref().map(|p| CaptionStyle { preset: p.into(), ..s.caption_style.clone() }).unwrap_or(s.caption_style.clone());
     let ass = dir.join(format!("{format}.ass"));
-    std::fs::write(&ass, captions::build(&captions::CaptionSpec { segments: &t.segments, translation: &c.translation, clip_start: start, clip_end: end, width: w, height: h, extra_bottom: extra, style: &style, language: &t.language, hook: &c.hook, watermark: &s.channel_name })).map_err(|e| e.to_string())?;
+    std::fs::write(&ass, captions::build(&captions::CaptionSpec { segments: &t.segments, translation: &c.translation, clip_start: start, clip_end: end, width: w, height: h, extra_bottom: extra, style: &style, language: &t.language, hook: &c.hook, watermark: &s.channel_name, use_translation: !s.translate_to.is_empty() && s.translate_to != t.language })).map_err(|e| e.to_string())?;
     let mut r = Render { id: new_id("r"), candidate_id: c.id.clone(), source_id: src.id.clone(), format: format.clone(), path: out.display().to_string(), status: "rendering".into(), created_at: now(), ..Default::default() };
     lib.put("renders", &r.id, &r.created_at, &r);
     let jid = job.id.clone();

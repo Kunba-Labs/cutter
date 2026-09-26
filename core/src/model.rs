@@ -306,7 +306,7 @@ impl Default for Settings {
             min_score: 6,
             auto_detect: true,
             auto_approve_score: 0,
-            translate_to: "en".into(),
+            translate_to: String::new(),
             caption_style: CaptionStyle::default(),
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
             channel_name: String::new(),

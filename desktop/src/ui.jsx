@@ -85,7 +85,7 @@ export const Confirm = ({ text, yes = "Discard", no = "Keep editing", onYes, onN
   <div className="sheet-bg" style={{ zIndex: 30 }} onMouseDown={(e) => e.target === e.currentTarget && onNo()}>
     <div className="sheet" style={{ width: 380 }}>
       <div className="panel-body" style={{ padding: 16, gap: 14 }}>
-        <span style={{ fontSize: 13.5 }}>{text}</span>
+        <span style={{ fontSize: 14.5 }}>{text}</span>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}><Btn onClick={onNo} autoFocus>{no}</Btn><Btn danger onClick={onYes}>{yes}</Btn></div>
       </div>
     </div>

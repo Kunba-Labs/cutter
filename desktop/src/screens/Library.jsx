@@ -51,7 +51,7 @@ export default function Library({ nav, go, query, setAdding }) {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "2px 10px 6px 18px" }}>{langs.map(([l, n]) => <span key={l} className="tag">{l} {n}</span>)}</div>
         </div>
         <span className="grow" />
-        <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch", gap: 4, fontSize: 12, color: "var(--muted)" }}>
+        <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch", gap: 4, fontSize: 13, color: "var(--muted)" }}>
           <span className="ell">{s.paths.outDir}</span>
           <span>{s.sources.length} sources · {s.candidates.length} reels · {s.posters.length} posters</span>
         </div>
@@ -82,12 +82,12 @@ export default function Library({ nav, go, query, setAdding }) {
         </div>
         <div style={{ height: 180, flexShrink: 0, display: "flex", gap: 10 }}>
           <Panel title="Activity" className="grow" body={false}>
-            <div className="scroll" style={{ padding: "6px 10px", fontFamily: "var(--mono)", fontSize: 12, color: "var(--text-2)", lineHeight: 1.5 }}>
+            <div className="scroll" style={{ padding: "6px 10px", fontFamily: "var(--mono)", fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
               {[...s.jobs].reverse().slice(0, 40).map((j) => <div key={j.id}><span className="muted">{(j.startedAt || j.createdAt || "").slice(11, 19)}</span> <span className={j.status === "failed" ? "coral" : j.status === "done" ? "mint" : "pink"}>{j.kind.padEnd(13)}</span> {j.label} · {j.message || j.status}</div>)}
             </div>
           </Panel>
           <Panel title="Engines" style={{ width: 300, flexShrink: 0 }}>
-            <div className="grid2" style={{ fontSize: 12 }}>
+            <div className="grid2" style={{ fontSize: 13 }}>
               {[["ffmpeg", s.tools.ffmpeg && !s.tools.ffmpegAss ? "ffmpeg (no libass!)" : "ffmpeg"], ["ytdlp", "yt-dlp"], ["whisper", "whisper (MLX)"], ["claude", "claude CLI"], ["ollama", "ollama"], ["uv", "uv"]].map(([k, l]) => <span key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={s.tools[k] ? "mint" : "muted"} /><span className={s.tools[k] ? "" : "muted"}>{l}</span></span>)}
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id="youtube" mono={!s.settings.youtube?.refreshToken} /><span className={s.settings.youtube?.refreshToken ? "" : "muted"}>YouTube · {s.settings.youtube?.channelTitle || "not linked"}</span></span>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id="tiktok" mono /><Brand id="instagram" mono /><span className="muted">not linked</span></span>
@@ -118,9 +118,9 @@ function SourceInfo({ x, s, go }) {
   };
   return (
     <>
-      <div className="panel-body" style={{ fontSize: 12.5 }}>
+      <div className="panel-body" style={{ fontSize: 13.5 }}>
         {x.thumbPath && <img src={fileUrl(x.thumbPath)} alt="" style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: 4, background: "var(--head)" }} />}
-        <b style={{ fontSize: 13 }}>{x.title}</b>
+        <b style={{ fontSize: 14 }}>{x.title}</b>
         <div className="kv">
           <span>Channel</span><span className="ell">{x.channel || "—"}</span>
           <span>Source</span><span className="ell">{x.url || x.path}</span>

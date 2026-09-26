@@ -45,10 +45,10 @@ export default function Queue() {
           {!j ? <div className="empty">Select a job.</div> : (
             <>
               <div className="panel-body" style={{ flexGrow: 1 }}>
-                <b style={{ fontSize: 13 }}>{j.label}</b>
+                <b style={{ fontSize: 14 }}>{j.label}</b>
                 <div className="kv"><span>Kind</span><span>{j.kind}</span><span>Ref</span><span className="ell">{j.refId}</span><span>Created</span><span>{ago(j.createdAt)}</span>{j.startedAt && <><span>Started</span><span>{j.startedAt.slice(11, 19)}</span></>}{j.finishedAt && <><span>Finished</span><span>{j.finishedAt.slice(11, 19)}</span></>}{Object.keys(j.args || {}).length > 0 && <><span>Args</span><span className="mono ell">{JSON.stringify(j.args)}</span></>}</div>
-                {(j.status === "running") && <div style={{ display: "flex", flexDirection: "column", gap: 4 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}><span className="muted">Progress</span><span>{Math.round(j.progress * 100)}%</span></div><span className="bar" style={{ height: 6 }}><i style={{ width: `${Math.round(j.progress * 100)}%` }} /></span></div>}
-                <span className={`${color[j.status]}`} style={{ fontSize: 12.5, lineHeight: 1.45 }}>{j.message}</span>
+                {(j.status === "running") && <div style={{ display: "flex", flexDirection: "column", gap: 4 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span className="muted">Progress</span><span>{Math.round(j.progress * 100)}%</span></div><span className="bar" style={{ height: 6 }}><i style={{ width: `${Math.round(j.progress * 100)}%` }} /></span></div>}
+                <span className={`${color[j.status]}`} style={{ fontSize: 13.5, lineHeight: 1.45 }}>{j.message}</span>
                 <span className="label">Log</span>
                 <div className="log" style={{ flexGrow: 1, minHeight: 120 }}>{j.log || "—"}</div>
               </div>

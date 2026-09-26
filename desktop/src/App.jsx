@@ -88,7 +88,7 @@ export default function App() {
       </div>
       <Boundary resetKey={`${nav.tab}:${nav.sourceId}:${nav.view}`} onHome={() => go("library", { sourceId: null, view: "reels" })}>{screen}</Boundary>
       {adding && <AddSource onClose={() => setAdding(false)} go={go} />}
-      {s.toast && <div style={{ position: "fixed", right: 16, bottom: 16, padding: "8px 12px", borderRadius: 4, background: s.toast.kind === "err" ? "#3B1F2A" : "var(--head)", border: `1px solid ${s.toast.kind === "err" ? "var(--coral)" : s.toast.kind === "ok" ? "var(--mint)" : "var(--rule)"}`, fontSize: 12.5, maxWidth: 420, zIndex: 20 }}>{s.toast.msg}</div>}
+      {s.toast && <div style={{ position: "fixed", right: 16, bottom: 16, padding: "8px 12px", borderRadius: 4, background: s.toast.kind === "err" ? "#3B1F2A" : "var(--head)", border: `1px solid ${s.toast.kind === "err" ? "var(--coral)" : s.toast.kind === "ok" ? "var(--mint)" : "var(--rule)"}`, fontSize: 13.5, maxWidth: 420, zIndex: 20 }}>{s.toast.msg}</div>}
     </div>
   );
 }

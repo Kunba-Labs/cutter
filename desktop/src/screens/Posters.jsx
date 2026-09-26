@@ -33,14 +33,14 @@ export default function Posters({ go }) {
           <div className="panel-head"><span className="grow">Events</span></div>
           <div className="scroll">
             {!s.posters.length && <div className="empty">No posters yet. Pick a template below.</div>}
-            {[...s.posters].reverse().map((v) => <div key={v.id} className={`nav-item ${p?.id === v.id ? "on" : ""}`} style={{ padding: "6px 10px", flexDirection: "column", alignItems: "stretch", gap: 2 }} onClick={() => setSelId(v.id)}><b className="ell">{v.title}</b><span className={v.status === "exported" ? "mint" : v.status === "failed" ? "coral" : v.status === "variants" || v.status === "chosen" ? "pink" : "muted"} style={{ fontSize: 12 }}>{v.fields?.date} · {v.status}</span></div>)}
+            {[...s.posters].reverse().map((v) => <div key={v.id} className={`nav-item ${p?.id === v.id ? "on" : ""}`} style={{ padding: "6px 10px", flexDirection: "column", alignItems: "stretch", gap: 2 }} onClick={() => setSelId(v.id)}><b className="ell">{v.title}</b><span className={v.status === "exported" ? "mint" : v.status === "failed" ? "coral" : v.status === "variants" || v.status === "chosen" ? "pink" : "muted"} style={{ fontSize: 13 }}>{v.fields?.date} · {v.status}</span></div>)}
           </div>
         </div>
         <Panel title="Templates" body={false} style={{ flexShrink: 0 }}>
           {Object.entries(TEMPLATES).map(([k, t]) => <div key={k} className="nav-item" style={{ padding: "6px 10px" }} onClick={() => create(k)}><span className="grow">{t.title}</span>{I.plus}</div>)}
         </Panel>
         <Panel title="Used before · avoid" className="grow">
-          {(s.settings.posterHistory || []).slice(-8).map((h, i) => <span key={i} style={{ fontSize: 12, color: "var(--text-2)" }}>{h}</span>)}
+          {(s.settings.posterHistory || []).slice(-8).map((h, i) => <span key={i} style={{ fontSize: 13, color: "var(--text-2)" }}>{h}</span>)}
           <span className="hint">Claude picks palettes outside this list; add to it in Settings › Posters or when exporting.</span>
         </Panel>
       </div>
@@ -66,23 +66,23 @@ export default function Posters({ go }) {
               <div className="scroll">
                 {p.error && <div className="empty coral">{p.error}</div>}
                 {!p.variants?.length && !p.error && <div className="empty">{job ? "Drawing… this takes a few minutes. Watch the Queue." : "Generate variants, or add PNGs you made elsewhere."}</div>}
-                <div className="variants">{(p.variants || []).map((v, i) => <label key={v} className={`variant ${p.chosen === v ? "on" : ""}`} onClick={() => tryAct("choose_variant", { id: p.id, path: v })}><img src={fileUrl(v)} alt="" /><span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}><input type="radio" name="variant" checked={p.chosen === v} onChange={() => {}} style={{ accentColor: "var(--accent)", margin: 0 }} /><b className="grow">Variant {i + 1}</b><span className="muted ell" style={{ maxWidth: 120 }}>{f.palettes?.[i] || ""}</span></span></label>)}</div>
+                <div className="variants">{(p.variants || []).map((v, i) => <label key={v} className={`variant ${p.chosen === v ? "on" : ""}`} onClick={() => tryAct("choose_variant", { id: p.id, path: v })}><img src={fileUrl(v)} alt="" /><span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5 }}><input type="radio" name="variant" checked={p.chosen === v} onChange={() => {}} style={{ accentColor: "var(--accent)", margin: 0 }} /><b className="grow">Variant {i + 1}</b><span className="muted ell" style={{ maxWidth: 120 }}>{f.palettes?.[i] || ""}</span></span></label>)}</div>
               </div>
             </div>
           </div>
           <div className="panel" style={{ width: 300, flexShrink: 0 }}>
             <div className="panel-head"><span className="grow">Export</span><span className="sub">{p.chosen ? `variant ${p.variants.indexOf(p.chosen) + 1}` : "choose a variant"}</span></div>
             <div className="panel-body">
-              {p.chosen && <div style={{ display: "flex", gap: 10 }}><img src={fileUrl(p.chosen)} alt="" style={{ width: 88, height: 132, objectFit: "cover", borderRadius: 3 }} /><div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.qrOk ? "mint" : "muted"} />QR {p.qrOk ? "decodes" : "not verified"}</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.print ? "mint" : "muted"} />print · jpeg · feed · story</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.["waiting-16x9"] ? "mint" : "muted"} />waiting videos</span></div></div>}
+              {p.chosen && <div style={{ display: "flex", gap: 10 }}><img src={fileUrl(p.chosen)} alt="" style={{ width: 88, height: 132, objectFit: "cover", borderRadius: 3 }} /><div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.qrOk ? "mint" : "muted"} />QR {p.qrOk ? "decodes" : "not verified"}</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.print ? "mint" : "muted"} />print · jpeg · feed · story</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.["waiting-16x9"] ? "mint" : "muted"} />waiting videos</span></div></div>}
               <label className="field"><span>Palette of the chosen one (remembered, so it is not repeated)</span><Text value={f.chosenPalette ?? (p.chosen ? f.palettes?.[p.variants.indexOf(p.chosen)] : "")} onCommit={(v) => patchField("chosenPalette", v)} placeholder="emerald + gold, mihrab arch" /></label>
               <Btn primary disabled={!p.chosen} onClick={() => tryAct("export_poster", { id: p.id, palette: f.chosenPalette || f.palettes?.[p.variants.indexOf(p.chosen)] || "" }, "Exported: print, JPEG 1600, feed 4:5, story 9:16")}>Export files</Btn>
-              {p.outputs && Object.entries(p.outputs).filter(([k]) => !k.startsWith("waiting") && !k.startsWith("break") && !k.startsWith("ended")).map(([k, v]) => <a key={k} href="#" style={{ fontSize: 12 }} onClick={(e) => { e.preventDefault(); tryAct("open", { path: v, reveal: true }); }}>{k} · {String(v).split("/").pop()}</a>)}
+              {p.outputs && Object.entries(p.outputs).filter(([k]) => !k.startsWith("waiting") && !k.startsWith("break") && !k.startsWith("ended")).map(([k, v]) => <a key={k} href="#" style={{ fontSize: 13 }} onClick={(e) => { e.preventDefault(); tryAct("open", { path: v, reveal: true }); }}>{k} · {String(v).split("/").pop()}</a>)}
               <div style={{ borderTop: "1px solid var(--rule)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                 <span className="label">Waiting video · "Begint zo" loop for the stream</span>
                 <label className="field"><span>Event starts (local) · default next Friday 20:00</span><input className="input" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} /></label>
                 <span className="hint">16:9 for YouTube Live and 9:16 for Instagram Live, a burned countdown to the start, plus "we zijn zo terug" and "afgelopen" stills. Render on the day so the countdown is right.</span>
                 <Btn disabled={!p.chosen} onClick={() => tryAct("waiting_video", { id: p.id, startAt: startIso(), countdown: true, loopS: 600 }, "Rendering the waiting videos")}>Render waiting videos</Btn>
-                {p.outputs && Object.entries(p.outputs).filter(([k]) => k.startsWith("waiting") || k.startsWith("break") || k.startsWith("ended")).map(([k, v]) => <a key={k} href="#" style={{ fontSize: 12 }} onClick={(e) => { e.preventDefault(); tryAct("open", { path: v }); }}>{k} ▸</a>)}
+                {p.outputs && Object.entries(p.outputs).filter(([k]) => k.startsWith("waiting") || k.startsWith("break") || k.startsWith("ended")).map(([k, v]) => <a key={k} href="#" style={{ fontSize: 13 }} onClick={(e) => { e.preventDefault(); tryAct("open", { path: v }); }}>{k} ▸</a>)}
               </div>
               <div style={{ borderTop: "1px solid var(--rule)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                 <span className="label">Announce</span>

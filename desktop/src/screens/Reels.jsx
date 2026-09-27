@@ -57,7 +57,7 @@ export default function Reels({ nav, go }) {
       if (e.key === " ") { e.preventDefault(); toggle(); }
       if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); const i = cands.findIndex((v) => v.id === c?.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }
       if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); const i = cands.findIndex((v) => v.id === c?.id); setSelId(cands[Math.max(0, i - 1)]?.id); }
-      if (e.key === "a" && c) tryAct("approve", { ids: [c.id], approved: !c.approved });
+      if (e.key === "a" && c) { tryAct("approve", { ids: [c.id], approved: !c.approved }); if (!c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }
       if (e.key === "[" && c) patch({ start: Math.max(0, t) });
       if (e.key === "]" && c) patch({ end: t });
     };
@@ -222,7 +222,7 @@ export default function Reels({ nav, go }) {
         </div>
         <span className="grow" />
         <div className="panel-foot">
-          <Btn primary className="grow" onClick={() => tryAct("approve", { ids: [c.id], approved: !c.approved })}>{c.approved ? "Approved ✓" : "Approve"}</Btn>
+          <Btn primary className="grow" onClick={async () => { const r = await tryAct("approve", { ids: [c.id], approved: !c.approved }); if (r != null && !c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }}>{c.approved ? "Approved ✓" : "Approve and next"}</Btn>
           <Btn onClick={async () => { const r = await tryAct("render", { candidateIds: [c.id] }, "Rendering"); if (r) go("queue"); }}>Render now</Btn>
           <Btn danger icon onClick={() => tryAct("discard", { id: c.id })} aria-label="Discard" title={c.discarded ? "Restore" : "Discard"}>{I.trash}</Btn>
         </div>

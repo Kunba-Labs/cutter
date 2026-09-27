@@ -215,6 +215,38 @@ pub fn cover(src: &Path, t: f64, out: &Path, src_w: i64, src_h: i64, width: i64,
     crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "3"]).arg(out)).map(|_| ())
 }
 
+/// Nine frames across the cut, cropped like the reel, tiled 3×3 and numbered, for the brain
+/// to choose a cover from. Returns the sheet and the source time of each numbered frame.
+#[allow(clippy::too_many_arguments)]
+pub fn cover_sheet(src: &Path, start: f64, end: f64, dir: &Path, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64, z: f64) -> Result<(std::path::PathBuf, Vec<f64>), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let n = 9usize;
+    let span = (end - start).max(0.5);
+    let pad = (span * 0.08).min(0.5);
+    let times: Vec<f64> = (0..n).map(|i| start + pad + (span - 2.0 * pad) * (i as f64 + 0.5) / n as f64).collect();
+    let (fw, gap) = (360i64, 8i64);
+    let fh = ((fw as f64 * height as f64 / width as f64 / 2.0).round() as i64) * 2;
+    let vf = format!("{},scale={fw}:{fh}", crop_filter_z(src_w, src_h, width, height, cx, cy, z));
+    for (i, t) in times.iter().enumerate() {
+        crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "3"]).arg(dir.join(format!("frame-{}.jpg", i + 1))))?;
+    }
+    let (sw, sh) = (3 * fw + 4 * gap, 3 * fh + 4 * gap);
+    let mut ass = format!(
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: {sw}\nPlayResY: {sh}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
+Style: Num,Helvetica,60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,8,0,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    );
+    for i in 0..n as i64 {
+        let (col, row) = (i % 3, i / 3);
+        ass.push_str(&format!("Dialogue: 0,0:00:00.00,0:00:10.00,Num,,0,0,0,,{{\\an7\\pos({},{})}}{}\n", gap + col * (fw + gap) + 12, gap + row * (fh + gap) + 10, i + 1));
+    }
+    let ass_path = dir.join("numbers.ass");
+    std::fs::write(&ass_path, ass).map_err(|e| e.to_string())?;
+    let sheet = dir.join("sheet.jpg");
+    let vf = format!("tile=3x3:padding={gap}:margin={gap}:color=black,ass='{}'", ass_path_arg(&ass_path));
+    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-start_number", "1"]).arg("-i").arg(dir.join("frame-%d.jpg")).args(["-frames:v", "1", "-vf", &vf, "-q:v", "3"]).arg(&sheet))?;
+    Ok((sheet, times))
+}
+
 pub fn thumbnail(src: &Path, out: &Path) -> Result<(), String> {
     crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", "30"]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4"]).arg(out)).map(|_| ())
 }

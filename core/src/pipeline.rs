@@ -69,6 +69,34 @@ fn source(lib: &Library, id: &str) -> Result<Source, String> {
     lib.get::<Source>("sources", id).ok_or_else(|| "source is gone".to_string())
 }
 
+/// The brain picks the cover from nine numbered frames of the cut; the choice is kept on the
+/// candidate so the other formats reuse it. Falls back to one second in.
+fn pick_cover(lib: &Library, job: &Job, s: &Settings, c: &Candidate, video: &Path, tmp: &Path, g: (i64, i64, i64, i64, f64, f64, f64)) -> f64 {
+    let fallback = c.start + 1.0;
+    lib.job_progress(&job.id, 0.97, "choosing the cover");
+    let (sw, sh, w, h, cx, cy, cz) = g;
+    let picked = (|| -> Result<f64, String> {
+        let (sheet, times) = ffmpeg::cover_sheet(video, c.start, c.end, tmp, sw, sh, w, h, cx, cy, cz)?;
+        let text = brain::ask(s, &brain::cover_prompt(&sheet, &c.title), Duration::from_secs(180), |pid| lib.register_child(&job.id, pid))?;
+        let n = brain::parse_frame(&text).ok_or_else(|| format!("no frame in: {}", text.chars().take(120).collect::<String>()))?;
+        Ok(times[n - 1])
+    })();
+    let _ = std::fs::remove_dir_all(tmp);
+    match picked {
+        Ok(t) => {
+            if let Some(mut cc) = lib.get::<Candidate>("candidates", &c.id) {
+                cc.cover_t = Some(t);
+                lib.save_candidate(&mut cc);
+            }
+            t
+        }
+        Err(e) => {
+            log::warn!("cover pick for {}: {e}", c.id);
+            fallback
+        }
+    }
+}
+
 fn set_stage(lib: &Library, src: &mut Source, stage: &str, error: Option<String>) {
     src.stage = stage.into();
     src.error = error;
@@ -150,15 +178,8 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
                 let _ = std::fs::remove_file(&prev);
                 src.stage = stage_before;
                 lib.save_source(&mut src);
-                // Every reel that was rendered from the old file is rendered again from the new one.
-                let done: Vec<Render> = lib.all::<Render>("renders").into_iter().filter(|r| r.source_id == src.id && r.status == "done").collect();
-                let mut n = 0;
-                for c in lib.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == src.id && !c.discarded) {
-                    for f in done.iter().filter(|r| r.candidate_id == c.id).map(|r| r.format.clone()).collect::<std::collections::BTreeSet<_>>() {
-                        lib.enqueue("render", &c.id, &format!("{} · {f}", c.title), json!({ "format": f }));
-                        n += 1;
-                    }
-                }
+                // Every ticked reel is rendered from the new file, files from the old one included.
+                let n = lib.dispatch("render", json!({ "sourceId": src.id })).ok().and_then(|v| v.as_array().map(|a| a.len())).unwrap_or(0);
                 return Ok(json!({ "message": format!("{}p {} · edits kept · {n} reels rendering again", src.meta["height"], src.meta["vcodec"].as_str().unwrap_or("")) }));
             }
             Err(e) => {
@@ -335,7 +356,12 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     match res {
         Ok(()) => {
             let cover = dir.join(format!("{format}-cover.jpg"));
-            let _ = ffmpeg::cover(&video, c.start + 1.0, &cover, sw, sh, w, h, c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5), c.crop["z"].as_f64().unwrap_or(1.0));
+            let (cx, cy, cz) = (c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5), c.crop["z"].as_f64().unwrap_or(1.0));
+            let cover_t = match c.cover_t {
+                Some(t) => t,
+                None => pick_cover(lib, job, &s, &c, &video, &dir.join(format!(".cover-{format}")), (sw, sh, w, h, cx, cy, cz)),
+            };
+            let _ = ffmpeg::cover(&video, cover_t, &cover, sw, sh, w, h, cx, cy, cz);
             let srt = dir.join("captions.srt");
             let _ = std::fs::write(&srt, captions::srt(&t.segments, start, end));
             let _ = std::fs::write(dir.join("caption.txt"), format!("{}\n\n{}\n{}", c.title, c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")));

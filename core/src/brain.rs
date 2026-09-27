@@ -84,6 +84,26 @@ pub fn lang_name(code: &str) -> &str {
 }
 
 /// Ask the configured brain; returns the model's raw text.
+/// Asks for the best cover frame on a numbered 3×3 contact sheet. Both brains read a file path in the prompt.
+pub fn cover_prompt(sheet: &std::path::Path, title: &str) -> String {
+    format!(
+        "Look at the image file {} (read it with your Read tool). It is a 3 by 3 contact sheet of nine numbered frames \
+from a short vertical clip of an Islamic lecture titled \"{title}\". Pick the one frame that works best as the cover \
+image of the clip on Instagram, TikTok and YouTube Shorts: the speaker's face sharp and clearly visible, eyes open, \
+no mid-blink or mid-word grimace, a natural or expressive look, well framed, no motion blur, no slide or transition. \
+Answer with JSON only: {{\"frame\": <1-9>, \"why\": \"<ten words>\"}}",
+        sheet.display()
+    )
+}
+
+/// The 1-based frame number in the brain's answer.
+pub fn parse_frame(text: &str) -> Option<usize> {
+    let (start, end) = (text.find('{')?, text.rfind('}')?);
+    let v: Value = serde_json::from_str(&text[start..=end]).ok()?;
+    let n = v["frame"].as_u64().or_else(|| v["frame"].as_str().and_then(|s| s.trim().parse().ok()))? as usize;
+    (1..=9).contains(&n).then_some(n)
+}
+
 pub fn ask(s: &Settings, prompt: &str, timeout: Duration, on_spawn: impl FnOnce(u32)) -> Result<String, String> {
     let child = if s.brain == "ollama" {
         let mut c = Command::new("ollama").args(["run", &s.ollama_model]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("ollama: {e}"))?;

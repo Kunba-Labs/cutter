@@ -124,6 +124,9 @@ pub struct Candidate {
     pub hook_style: Option<String>,
     /// Caption distance from the bottom (% of height) for this reel, else the template's.
     pub caption_pct: Option<i64>,
+    /// Source time of the frame the brain picked as the cover. Set on the first render, reused after.
+    #[serde(default)]
+    pub cover_t: Option<f64>,
     /// Override of settings.formats, or empty for the default.
     pub formats: Vec<String>,
     pub position: i64,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, CATS, FORMATS, useSpeed, setSpeed } from "../store.js";
-import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES } from "../ui.jsx";
+import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot } from "../ui.jsx";
 import { captionCss, hookCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
@@ -233,6 +233,11 @@ export default function Reels({ nav, go }) {
             <Field label="Caption"><Text area rows={4} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
             <Field label={`Hashtags · ${(c.hashtags || []).length}`}><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
             {(s.targets || []).filter((t) => t.enabled).length > 0 && <Field label="Post to"><div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>{(s.targets || []).filter((t) => t.enabled).map((t) => { const all = (s.targets || []).filter((x) => x.enabled).map((x) => x.id); const on = !c.targets?.length || c.targets.includes(t.id); return <Check key={t.id} label={t.name} checked={on} onChange={(v) => { const cur = c.targets?.length ? c.targets.filter((id) => all.includes(id)) : all; const next = v ? [...new Set([...cur, t.id])] : cur.filter((id) => id !== t.id); patch({ targets: next.length === all.length ? [] : next }); }} />; })}</div></Field>}
+          </div>
+          <div className="insp-group">
+            <div className="insp-head">Files</div>
+            {!s.renders.some((r) => r.candidateId === c.id && r.status === "done") && <span className="hint">Nothing rendered yet.</span>}
+            {s.renders.filter((r) => r.candidateId === c.id && r.status === "done").map((r) => { const i = r.info || {}; const bad = i.issues?.length; return <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><Dot c={bad ? "coral" : i.width ? "mint" : ""} /><b style={{ width: 62 }}>{FORMATS.find(([v]) => v === r.format)?.[1] || r.format}</b><span className={`ell ${bad ? "coral" : "muted"}`}>{i.width ? `${i.width}×${i.height} · ${Math.round(i.fps)} fps · ${(i.kbps / 1000).toFixed(1)} Mbps · ${i.seconds} s${bad ? ` · ${i.issues.join(", ")}` : ""}` : "not measured"}</span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>play</a></div>; })}
           </div>
           <div className="insp-group">
             <div className="insp-head">Render as<span className="grow" /><span className="muted" style={{ fontWeight: 400 }}>{c.formats?.length ? "this reel" : "library default"}</span></div>

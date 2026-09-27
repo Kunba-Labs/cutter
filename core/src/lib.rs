@@ -813,6 +813,19 @@ impl Library {
                 self.save_post(&mut p);
                 json!(self.enqueue("publish", &p.id, &p.title, json!({})))
             }
+            "set_privacy" => {
+                // Change privacy on a posted YouTube video: id = post id, privacy = public | unlisted | private.
+                let id = id()?;
+                let p: Post = self.get("posts", &id).ok_or("no such post")?;
+                let video = p.provider_id.clone().ok_or("not posted yet")?;
+                let target = self.target_for(&p).ok_or("no target")?;
+                if target.kind != "youtube" {
+                    return Err("only YouTube posts".into());
+                }
+                let privacy = s("privacy").unwrap_or_else(|| "public".into());
+                youtube::set_privacy(&self.youtube_auth(&target), &video, &privacy)?;
+                json!({ "video": video, "privacy": privacy })
+            }
             "unschedule" => {
                 let id = id()?;
                 let _ = self.db.lock().delete("posts", &id);

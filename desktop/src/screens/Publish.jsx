@@ -76,6 +76,7 @@ export default function Publish({ go }) {
             </div>
             <span className="grow" />
             <div className="panel-foot">
+              {post.status === "posted" && post.channel === "youtube" && <><span className="muted">Now</span><Seg value={post.privacy || "?"} onChange={(v) => tryAct("set_privacy", { id: post.id, privacy: v }, `Set to ${v}`)} options={[["public", "Public"], ["unlisted", "Unlisted"], ["private", "Private"]]} /></>}
               {post.status !== "posted" && <Btn primary className="grow" onClick={() => tryAct("confirm", { id: post.id }, "Confirmed")} disabled={post.status === "confirmed" || post.status === "posting"}>{post.status === "confirmed" ? "Confirmed" : post.status === "failed" ? "Try again" : "Confirm"}</Btn>}
               {post.status !== "posted" && <Btn onClick={() => tryAct("publish_now", { id: post.id }, "Publishing")}>Post now</Btn>}
               <Btn danger icon onClick={() => tryAct("unschedule", { id: post.id }) && setSelId(null)} aria-label="Remove">{I.trash}</Btn>

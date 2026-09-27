@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 
 use crate::model::YoutubeAuth;
 
-const SCOPES: &str = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
+/// upload + readonly + force-ssl: force-ssl lets Cuttar change privacy on, and delete, what it posted.
+const SCOPES: &str = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.force-ssl";
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().timeout(Duration::from_secs(120)).redirects(0).build()
@@ -81,6 +82,20 @@ pub fn access_token(auth: &YoutubeAuth) -> Result<String, String> {
         .into_json()
         .map_err(|e| e.to_string())?;
     v["access_token"].as_str().map(String::from).ok_or_else(|| format!("refresh failed: {v}"))
+}
+
+/// public | unlisted | private on a video Cuttar posted.
+pub fn set_privacy(auth: &YoutubeAuth, video_id: &str, privacy: &str) -> Result<(), String> {
+    let access = access_token(auth)?;
+    let r = agent()
+        .put("https://www.googleapis.com/youtube/v3/videos?part=status")
+        .set("Authorization", &format!("Bearer {access}"))
+        .send_json(json!({ "id": video_id, "status": { "privacyStatus": privacy, "selfDeclaredMadeForKids": false } }));
+    match r {
+        Ok(_) => Ok(()),
+        Err(ureq::Error::Status(403, _)) => Err("This login can only upload. Disconnect and connect the target again to allow changes.".into()),
+        Err(e) => Err(format!("privacy: {e}")),
+    }
 }
 
 pub struct Upload<'a> {

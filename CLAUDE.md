@@ -67,7 +67,11 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   of the cut (`ffmpeg::cover_sheet`), the brain reads the sheet (both claude and ollama take a file
   path in the prompt) and answers `{"frame": n}`. The time lands on `candidate.cover_t`; other
   formats reuse it, a later render job of the same reel waits instead of asking again. The sheet
-  stays beside the reel as `cover-sheet.jpg`. Fallback on any error: one second in.
+  stays beside the reel as `cover-sheet.jpg`. Fallback on any error: one second in. The nine
+  frames are the sharpest in nine windows of the cut (`ffmpeg::sharp_times`, mean Sobel edge
+  strength at 4 fps over the crop). The cover carries the title at 1.5× the reel's title size
+  (`captions::cover`). `covers` redoes cover images without re-encoding; `pick_cover` forgets the
+  frame and renders the reel again ("New cover" on the Reels screen).
 - **Design language**: panels on #1A1D2A with 26 px header strips, magenta #F52ACB the only
   action colour, mint = done, coral = failed. No stat tiles, no caps labels, no pill nav.
 

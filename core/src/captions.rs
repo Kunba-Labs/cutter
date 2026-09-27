@@ -49,6 +49,8 @@ pub fn cover(style: &CaptionStyle, width: i64, height: i64, extra_bottom: f64, l
     let mut st = style.clone();
     st.hook = true;
     st.hook_seconds = 60.0;
+    // A thumbnail is read at a fraction of the size, so the title grows by half.
+    st.hook_size = (st.hook_size.max(12) as f64 * 1.5) as i64;
     build(&CaptionSpec { segments: &[], translation: &[], clip_start: 0.0, clip_end: 60.0, width, height, extra_bottom, style: &st, language, hook: title, watermark, use_translation: false })
 }
 

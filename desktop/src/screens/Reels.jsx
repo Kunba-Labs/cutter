@@ -20,17 +20,9 @@ export default function Reels({ nav, go }) {
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [hold, setHold] = useState(false);
-  const [editSeg, setEditSeg] = useState(null); // { index, text } while a caption line is being corrected in place
   const [pick, setPick] = useState(null); // { seg, word } chosen in the words strip
   useEffect(() => setPick(null), [c?.id]);
   const refreshSeg = (r, index) => setDetail((d) => d && { ...d, transcript: { ...d.transcript, segments: d.transcript.segments.map((g, i) => (i === index ? r : g)) } });
-  const saveSeg = async () => {
-    if (!editSeg) return;
-    const r = await tryAct("edit_segment", { id: sourceId, index: editSeg.index, text: editSeg.text }, "Line corrected");
-    if (r) refreshSeg(r, editSeg.index);
-    setEditSeg(null);
-  };
-  const editCurrent = () => { const v = video.current; if (v && !v.paused) { v.pause(); setPlaying(false); } const i = segs.findIndex((g) => t >= g.start && t < g.end); if (i >= 0) setEditSeg({ index: i, text: segs[i].text }); };
   const [applyScope, setApplyScope] = useState("source");
   const [applyKeys, setApplyKeys] = useState(["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
@@ -66,7 +58,6 @@ export default function Reels({ nav, go }) {
     const onKey = (e) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
       if (e.key === " ") { e.preventDefault(); toggle(); }
-      if (e.key === "Enter" && !editSeg) { e.preventDefault(); editCurrent(); }
       if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); const i = cands.findIndex((v) => v.id === c?.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }
       if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); const i = cands.findIndex((v) => v.id === c?.id); setSelId(cands[Math.max(0, i - 1)]?.id); }
       if (e.key === "a" && c) { tryAct("approve", { ids: [c.id], approved: !c.approved }); if (!c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }
@@ -120,13 +111,8 @@ export default function Reels({ nav, go }) {
   // Drag the caption block up or down: a per-reel position, the template's otherwise.
   const [capDrag, setCapDrag] = useState(null);
   const capPct = capDrag?.pct ?? pending?.cap ?? c.captionPct ?? tpl.positionPct ?? 26;
-  // preventDefault on pointerdown suppresses click and dblclick, so a double tap is detected here.
-  const lastCapDown = useRef(0);
   const onCapDown = (e) => {
     e.stopPropagation(); e.preventDefault();
-    const now = Date.now();
-    if (now - lastCapDown.current < 350) { lastCapDown.current = 0; editCurrent(); return; }
-    lastCapDown.current = now;
     e.currentTarget.setPointerCapture(e.pointerId); setCapDrag({ y0: e.clientY, h: frameH, pct0: capPct, pct: capPct, moved: false });
   };
   const onCapMove = (e) => { if (!capDrag) return; e.stopPropagation(); const pct = Math.round(Math.min(70, Math.max(4, capDrag.pct0 + ((capDrag.y0 - e.clientY) / capDrag.h) * 100))); setCapDrag({ ...capDrag, pct, moved: true }); };
@@ -184,7 +170,6 @@ export default function Reels({ nav, go }) {
               {hold && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {hookTpl.hook !== false && c.hook && t - c.start < (hookTpl.hookSeconds || 2.5) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
-              {editSeg && <div style={{ position: "absolute", left: 12, right: 12, bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, zIndex: 3 }} onPointerDown={(e) => e.stopPropagation()}><textarea className="input" autoFocus rows={2} value={editSeg.text} onChange={(e) => setEditSeg({ ...editSeg, text: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveSeg(); } if (e.key === "Escape") setEditSeg(null); }} onBlur={saveSeg} style={{ fontSize: 14, textAlign: "center", background: "rgba(20,23,35,.92)", borderColor: "var(--accent)" }} /><div className="hint" style={{ textAlign: "center", marginTop: 4, color: "#fff", textShadow: "0 1px 3px #000" }}>Enter saves, Escape cancels. Same word count keeps the timing.</div></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
@@ -194,7 +179,7 @@ export default function Reels({ nav, go }) {
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.max(0, i - 1)]?.id); }} aria-label="Previous">{I.prev}</Btn>
             <Btn icon primary onClick={toggle} aria-label="Play">{playing ? I.pause : I.play}</Btn>
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }} aria-label="Next">{I.next}</Btn>
-            <Btn small onClick={editCurrent} disabled={!segs.length} title="Enter">Edit line</Btn><span className="muted">Loops the reel. Drag the picture or the captions to place them.</span><span className="grow" /><span className="muted">Space plays. Arrows switch reels. [ and ] set in and out. A ticks.</span>
+            <span className="muted">Loops the reel. Drag the picture or the captions to place them.</span><span className="grow" /><span className="muted">Space plays. Arrows switch reels. [ and ] set in and out. A ticks.</span>
           </div>
         </div>
         <Panel title="Trim" sub={`in ${fmt(c.start)} · out ${fmt(c.end)} · ${dur.toFixed(1)} s`} right={<><Btn small onClick={snapEnd}>Snap out to sentence</Btn><Btn small onClick={() => patch({ start: Math.max(0, t) })}>In = playhead</Btn><Btn small onClick={() => patch({ end: Math.max(c.start + 3, t) })}>Out = playhead</Btn></>} style={{ height: 150, flexShrink: 0 }}>

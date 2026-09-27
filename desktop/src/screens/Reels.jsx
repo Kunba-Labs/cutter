@@ -108,7 +108,15 @@ export default function Reels({ nav, go }) {
   // Drag the caption block up or down: a per-reel position, the template's otherwise.
   const [capDrag, setCapDrag] = useState(null);
   const capPct = capDrag?.pct ?? pending?.cap ?? c.captionPct ?? tpl.positionPct ?? 26;
-  const onCapDown = (e) => { e.stopPropagation(); e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setCapDrag({ y0: e.clientY, h: frameH, pct0: capPct, pct: capPct, moved: false }); };
+  // preventDefault on pointerdown suppresses click and dblclick, so a double tap is detected here.
+  const lastCapDown = useRef(0);
+  const onCapDown = (e) => {
+    e.stopPropagation(); e.preventDefault();
+    const now = Date.now();
+    if (now - lastCapDown.current < 350) { lastCapDown.current = 0; go("library", { sourceId, view: "transcript", seek: t }); return; }
+    lastCapDown.current = now;
+    e.currentTarget.setPointerCapture(e.pointerId); setCapDrag({ y0: e.clientY, h: frameH, pct0: capPct, pct: capPct, moved: false });
+  };
   const onCapMove = (e) => { if (!capDrag) return; e.stopPropagation(); const pct = Math.round(Math.min(70, Math.max(4, capDrag.pct0 + ((capDrag.y0 - e.clientY) / capDrag.h) * 100))); setCapDrag({ ...capDrag, pct, moved: true }); };
   const onCapUp = (e) => { if (!capDrag) return; e.stopPropagation(); if (capDrag.moved) { setPending((p) => ({ ...(p || {}), cap: capDrag.pct })); patch({ captionPct: capDrag.pct }); } setCapDrag(null); };
   // Caption preview: the words of the current segment, current word highlighted.

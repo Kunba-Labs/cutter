@@ -232,6 +232,7 @@ export default function Reels({ nav, go }) {
             <div className="insp-head">Post</div>
             <Field label="Caption"><Text area rows={4} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
             <Field label={`Hashtags · ${(c.hashtags || []).length}`}><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
+            {(s.targets || []).filter((t) => t.enabled).length > 0 && <Field label="Post to"><div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>{(s.targets || []).filter((t) => t.enabled).map((t) => { const all = (s.targets || []).filter((x) => x.enabled).map((x) => x.id); const on = !c.targets?.length || c.targets.includes(t.id); return <Check key={t.id} label={t.name} checked={on} onChange={(v) => { const cur = c.targets?.length ? c.targets.filter((id) => all.includes(id)) : all; const next = v ? [...new Set([...cur, t.id])] : cur.filter((id) => id !== t.id); patch({ targets: next.length === all.length ? [] : next }); }} />; })}</div></Field>}
           </div>
           <div className="insp-group">
             <div className="insp-head">Render as<span className="grow" /><span className="muted" style={{ fontWeight: 400 }}>{c.formats?.length ? "this reel" : "library default"}</span></div>

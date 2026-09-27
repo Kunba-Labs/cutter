@@ -18,24 +18,24 @@ export default function Publish({ go }) {
   const todayKey = localKey(new Date().toISOString());
   const cand = (p) => s.candidates.find((c) => c.id === p.candidateId);
   const render = (p) => s.renders.find((r) => r.id === p.renderId);
-  const linked = (c) => c === "youtube" ? !!s.settings.youtube?.refreshToken : false;
+  const targets = (s.targets || []).filter((t) => t.enabled);
+  const linked = (t) => t.kind === "youtube" ? !!t.refreshToken : t.kind === "folder" ? !!t.path : false;
+  const firstTarget = targets.find((t) => t.kind === "youtube" && t.refreshToken) || targets[0];
   const unscheduled = s.renders.filter((r) => r.status === "done" && r.format === "shorts" && !s.posts.some((p) => p.candidateId === r.candidateId));
   const patchPost = (p) => post && tryAct("update_post", { id: post.id, patch: p });
-  const cadence = s.settings.cadence || {};
 
   return (
     <div className="main">
       <div className="col" style={{ width: 260, flexShrink: 0 }}>
-        <Panel title="Channels" right={<Btn small onClick={() => go("settings")}>Link</Btn>} style={{ flexShrink: 0 }}>
-          {CH.map(([id, label]) => <div key={id} style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13.5 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Brand id={id} mono={!linked(id)} style={{ opacity: linked(id) ? 1 : 0.55 }} /><b className={`grow ${linked(id) ? "" : "sec"}`}>{label}{id === "youtube" && s.settings.youtube?.channelTitle ? ` · ${s.settings.youtube.channelTitle}` : ""}</b></div><span className="muted" style={{ paddingLeft: 22 }}>{linked(id) ? `at ${(cadence[id] || []).map((h) => `${h}:00`).join(", ") || "no times set"}` : id === "youtube" ? "connect in Settings" : "file and caption only, for now"}</span></div>)}
-        </Panel>
-        <Panel title="Cadence" style={{ flexShrink: 0 }}>
-          {CH.map(([id, label]) => <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}><span className="muted" style={{ width: 90, display: "flex", alignItems: "center", gap: 6 }}><Brand id={id} size={12} />{label.split(" ")[0]}</span><Text value={(cadence[id] || []).join(", ")} onCommit={(v) => tryAct("settings", { patch: { cadence: { ...cadence, [id]: v.split(/[\s,]+/).map(Number).filter((n) => n >= 0 && n < 24) } } })} placeholder="17, 19" /><span className="muted">h</span></div>)}
-          <Btn onClick={async () => { const n = await tryAct("autofill", { days: 14 }); if (n != null) tryAct("snapshot", {}, `${n} posts planned`); }}>Fill the next 14 days</Btn>
-          <span className="hint">One reel per channel per listed hour, oldest approved first. Planned posts wait for your confirm.</span>
+        <Panel title="Post to" right={<Btn small onClick={() => go("settings")}>Edit</Btn>} style={{ flexShrink: 0 }}>
+          {!targets.length && <span className="hint">No targets yet. Add one in Settings.</span>}
+          {targets.map((t) => <div key={t.id} style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13.5 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Brand id={t.kind === "folder" ? "youtube" : t.kind} mono={!linked(t)} style={{ opacity: linked(t) ? 1 : 0.55 }} /><b className={`grow ell ${linked(t) ? "" : "sec"}`}>{t.name}</b><span className="muted">{linked(t) ? "" : t.kind === "youtube" ? "not connected" : "by hand"}</span></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 60 }}>post at</span><Text value={(t.hours || []).join(", ")} onCommit={(v) => tryAct("update_target", { id: t.id, patch: { hours: v.split(/[\s,]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < 24) } })} placeholder="17" style={{ width: 90, height: 24 }} /></div></div>)}
+          <Btn onClick={async () => { const n = await tryAct("autofill", { days: 14 }); if (n != null) tryAct("snapshot", {}, `${n} posts planned`); }} disabled={!targets.length}>Fill the next 14 days</Btn>
+          <span className="hint">One reel per target per listed hour, oldest approved first. Planned posts wait for your confirm.</span>
         </Panel>
         <Panel title={`Unscheduled · ${unscheduled.length}`} className="grow">
-          {unscheduled.slice(0, 20).map((r) => { const c = s.candidates.find((c) => c.id === r.candidateId); return <div key={r.id} className="ell" style={{ fontSize: 13, color: "var(--text-2)", cursor: "pointer" }} onClick={() => { const at = new Date(); at.setDate(at.getDate() + 1); at.setHours(cadence.youtube?.[0] ?? 17, 0, 0, 0); tryAct("schedule", { candidateId: r.candidateId, channel: "youtube", at: at.toISOString() }, "Planned for tomorrow"); }}>{c?.title || r.candidateId}</div>; })}
+          {unscheduled.slice(0, 20).map((r) => { const c = s.candidates.find((c) => c.id === r.candidateId); return <div key={r.id} className="ell" style={{ fontSize: 13, color: "var(--text-2)", cursor: "pointer" }} onClick={() => { if (!firstTarget) return; const at = new Date(); at.setDate(at.getDate() + 1); at.setHours(firstTarget.hours?.[0] ?? 17, 0, 0, 0); tryAct("schedule", { candidateId: r.candidateId, targetId: firstTarget.id, at: at.toISOString() }, "Planned for tomorrow"); }}>{c?.title || r.candidateId}</div>; })}
           {!unscheduled.length && <span className="hint">Every rendered reel is on the calendar.</span>}
         </Panel>
       </div>
@@ -69,10 +69,10 @@ export default function Publish({ go }) {
               <label className="field"><span>Title</span><Text value={post.title} onCommit={(v) => patchPost({ title: v })} /></label>
               <label className="field"><span>Caption</span><Text area rows={5} value={post.caption} onCommit={(v) => patchPost({ caption: v })} /></label>
               <div className="grid2">
-                <label className="field"><span>Channel</span><select className="input" value={post.channel} onChange={(e) => patchPost({ channel: e.target.value })}>{CH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+                <label className="field"><span>Post to</span><select className="input" value={post.targetId || ""} onChange={(e) => { const t = (s.targets || []).find((x) => x.id === e.target.value); if (t) patchPost({ targetId: t.id, channel: t.kind }); }}><option value="">{CHANNEL_NAMES[post.channel] || post.channel}</option>{(s.targets || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
                 <label className="field"><span>When (local)</span><input className="input" type="datetime-local" value={new Date(new Date(post.scheduledAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(e) => e.target.value && patchPost({ scheduledAt: new Date(e.target.value).toISOString() })} /></label>
               </div>
-              <span className="hint">{post.channel === "youtube" ? `Uploads now as ${s.settings.youtube?.privacy || "public"}. A future time goes up private and YouTube shows it then.` : "Not linked yet. The file and its caption wait in the reel folder."}</span>
+              <span className="hint">{post.channel === "youtube" ? `Uploads now as ${(s.targets || []).find((t) => t.id === post.targetId)?.privacy || "public"}. A future time goes up private and YouTube shows it then.` : post.channel === "folder" ? "The file, cover and caption land in the drop folder at post time." : "Not linked yet. The file and its caption wait in the reel folder."}</span>
             </div>
             <span className="grow" />
             <div className="panel-foot">

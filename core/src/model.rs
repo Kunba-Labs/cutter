@@ -131,6 +131,9 @@ pub struct Candidate {
     /// frame pick when empty; the on-video title (`hook`) stands in when it is.
     #[serde(default)]
     pub cover_title: String,
+    /// Target ids this reel goes to. Empty: every enabled target.
+    #[serde(default)]
+    pub targets: Vec<String>,
     /// Override of settings.formats, or empty for the default.
     pub formats: Vec<String>,
     pub position: i64,
@@ -160,8 +163,11 @@ pub struct Post {
     pub render_id: Option<String>,
     pub candidate_id: Option<String>,
     pub poster_id: Option<String>,
-    /// "youtube" | "tiktok" | "instagram" | "facebook"
+    /// The target's kind: "youtube" | "tiktok" | "instagram" | "facebook" | "folder"
     pub channel: String,
+    /// The Target this post goes to.
+    #[serde(default)]
+    pub target_id: String,
     pub scheduled_at: String,
     /// planned (auto-filled) | confirmed | posting | posted | failed
     pub status: String,
@@ -171,6 +177,40 @@ pub struct Post {
     pub error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Somewhere a reel or poster goes: a YouTube channel with its own login, a manual
+/// Instagram/TikTok/Facebook account (file + caption prepared), or a drop folder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Target {
+    pub id: String,
+    /// "youtube" | "instagram" | "tiktok" | "facebook" | "folder"
+    pub kind: String,
+    pub name: String,
+    pub enabled: bool,
+    /// Local hours a post goes out, e.g. [17]. Empty: never auto-filled.
+    pub hours: Vec<i64>,
+    /// Render format this target takes; empty = the kind's default.
+    pub format: String,
+    /// Planned posts go out without a confirm.
+    pub auto_schedule: bool,
+    // youtube
+    pub refresh_token: String,
+    pub channel_title: String,
+    pub privacy: String,
+    pub category_id: String,
+    pub title_suffix: String,
+    pub description_footer: String,
+    // folder
+    pub path: String,
+    pub created_at: String,
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Self { id: String::new(), kind: "youtube".into(), name: String::new(), enabled: true, hours: vec![], format: String::new(), auto_schedule: false, refresh_token: String::new(), channel_title: String::new(), privacy: "public".into(), category_id: "27".into(), title_suffix: " #Shorts".into(), description_footer: "Volledige les: {source_url}".into(), path: String::new(), created_at: String::new() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

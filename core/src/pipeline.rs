@@ -451,20 +451,41 @@ fn publish(lib: &Library, job: &Job) -> Result<Value, String> {
     }
     p.status = "posting".into();
     lib.save_post(&mut p);
-    let s = lib.settings();
     let res: Result<String, String> = (|| {
         let path = match (&p.render_id, &p.poster_id) {
             (Some(r), _) => lib.get::<Render>("renders", r).map(|r| r.path).ok_or("the render is gone")?,
             (None, Some(po)) => lib.get::<Poster>("posters", po).and_then(|p| p.outputs["story"].as_str().map(String::from)).ok_or("export the poster first")?,
             _ => return Err("nothing to post: render the reel first".into()),
         };
-        match p.channel.as_str() {
+        let target = lib.target_for(&p).ok_or_else(|| format!("no {} target (Settings › Post to)", p.channel))?;
+        match target.kind.as_str() {
             "youtube" => {
+                let auth = lib.youtube_auth(&target);
+                if auth.refresh_token.is_empty() {
+                    return Err(format!("{} is not connected (Settings › Post to)", target.name));
+                }
                 let publish_at = chrono::DateTime::parse_from_rfc3339(&p.scheduled_at).ok().filter(|t| *t > chrono::Utc::now() + chrono::Duration::minutes(2)).map(|t| t.to_rfc3339());
                 let jid = job.id.clone();
-                let title = format!("{}{}", p.title.chars().take(95).collect::<String>(), s.youtube.title_suffix);
+                let title = format!("{}{}", p.title.chars().take(95).collect::<String>(), auth.title_suffix);
                 let tags: Vec<String> = p.caption.split_whitespace().filter_map(|w| w.strip_prefix('#')).map(String::from).collect();
-                youtube::upload(&s.youtube, &youtube::Upload { path: Path::new(&path), title: &title, description: &p.caption, tags: &tags, category_id: &s.youtube.category_id, privacy: &s.youtube.privacy, publish_at: publish_at.as_deref() }, |pr, m| lib.job_progress(&jid, pr, m))
+                youtube::upload(&auth, &youtube::Upload { path: Path::new(&path), title: &title, description: &p.caption, tags: &tags, category_id: &auth.category_id, privacy: &auth.privacy, publish_at: publish_at.as_deref() }, |pr, m| lib.job_progress(&jid, pr, m))
+            }
+            "folder" => {
+                // The file, its cover and the caption land in the drop folder under the post's title.
+                let dir = PathBuf::from(&target.path);
+                if target.path.is_empty() {
+                    return Err(format!("{} has no folder set", target.name));
+                }
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let base = slug(&p.title);
+                let ext = Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("mp4");
+                let dst = dir.join(format!("{base}.{ext}"));
+                std::fs::copy(&path, &dst).map_err(|e| format!("copy: {e}"))?;
+                if let Some(cover) = p.render_id.as_ref().and_then(|r| lib.get::<Render>("renders", r)).and_then(|r| r.cover_path) {
+                    let _ = std::fs::copy(&cover, dir.join(format!("{base}-cover.jpg")));
+                }
+                let _ = std::fs::write(dir.join(format!("{base}.txt")), format!("{}\n\n{}", p.title, p.caption));
+                Ok(dst.display().to_string())
             }
             // ponytail: TikTok and Meta need approved developer apps; until then the render sits in Finder with its caption.txt.
             other => Err(format!("{other} is not linked yet. The file is ready at {path} with caption.txt beside it.")),
@@ -604,22 +625,25 @@ pub fn autofill(lib: &Library, days: i64) -> usize {
     let posts: Vec<Post> = lib.all("posts");
     let renders: Vec<Render> = lib.all::<Render>("renders").into_iter().filter(|r| r.status == "done").collect();
     let mut n = 0;
-    let cadence = s.cadence.as_object().cloned().unwrap_or_default();
-    for (channel, hours) in cadence {
-        if channel == "youtube" && s.youtube.refresh_token.is_empty() {
+    let _ = &s;
+    for target in lib.targets() {
+        if target.hours.is_empty() || (target.kind == "youtube" && target.refresh_token.is_empty()) {
             continue;
         }
-        let fmt = crate::default_format(&channel);
-        let mut ready: Vec<&Render> = renders.iter().filter(|r| r.format == fmt && !posts.iter().any(|p| p.channel == channel && p.candidate_id.as_deref() == Some(&r.candidate_id))).collect();
+        let channel = target.kind.clone();
+        let fmt = if target.format.is_empty() { crate::default_format(&channel).to_string() } else { target.format.clone() };
+        let cands: Vec<Candidate> = lib.all("candidates");
+        let wants = |cid: &str| cands.iter().find(|c| c.id == cid).map(|c| c.targets.is_empty() || c.targets.contains(&target.id)).unwrap_or(false);
+        let mut ready: Vec<&Render> = renders.iter().filter(|r| r.format == fmt && wants(&r.candidate_id) && !posts.iter().any(|p| p.target_id == target.id && p.candidate_id.as_deref() == Some(&r.candidate_id))).collect();
         ready.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-        let hours: Vec<i64> = hours.as_array().map(|h| h.iter().filter_map(|v| v.as_i64()).collect()).unwrap_or_default();
+        let hours: Vec<i64> = target.hours.clone();
         let mut slots = Vec::new();
         for d in 1..=days {
             for h in &hours {
                 let t = chrono::Local::now().date_naive() + chrono::Duration::days(d);
                 if let Some(dt) = t.and_hms_opt(*h as u32, 0, 0).and_then(|n| n.and_local_timezone(chrono::Local).single()) {
                     let at = dt.with_timezone(&chrono::Utc).to_rfc3339();
-                    if !posts.iter().any(|p| p.channel == channel && p.scheduled_at[..13] == at[..13]) {
+                    if !posts.iter().any(|p| p.target_id == target.id && p.scheduled_at[..13] == at[..13]) {
                         slots.push(at);
                     }
                 }
@@ -628,7 +652,7 @@ pub fn autofill(lib: &Library, days: i64) -> usize {
         for (r, at) in ready.iter().zip(slots) {
             let Some(c) = lib.get::<Candidate>("candidates", &r.candidate_id) else { continue };
             let src = lib.get::<Source>("sources", &c.source_id);
-            let mut p = Post { id: new_id("p"), render_id: Some(r.id.clone()), candidate_id: Some(c.id.clone()), poster_id: None, channel: channel.clone(), scheduled_at: at, status: "planned".into(), title: c.title.clone(), caption: format!("{}\n{}", c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")), created_at: now(), ..Default::default() };
+            let mut p = Post { id: new_id("p"), render_id: Some(r.id.clone()), candidate_id: Some(c.id.clone()), poster_id: None, channel: channel.clone(), target_id: target.id.clone(), scheduled_at: at, status: if target.auto_schedule { "confirmed".into() } else { "planned".into() }, title: c.title.clone(), caption: format!("{}\n{}", c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")), created_at: now(), ..Default::default() };
             if let Some(src) = src {
                 p.caption = p.caption.replace("{source_url}", src.url.as_deref().unwrap_or(""));
             }

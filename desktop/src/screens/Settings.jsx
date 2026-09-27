@@ -10,7 +10,8 @@ export default function Settings({ go }) {
   const [sec, setSec] = useState("channels");
   const [busy, setBusy] = useState(false);
   const [advanced, setAdvanced] = useState(false);
-  const [askDisconnect, setAskDisconnect] = useState(false);
+  const [askDisconnect, setAskDisconnect] = useState(null);
+  const [removeT, setRemoveT] = useState(null);
   const patch = (p, msg) => tryAct("settings", { patch: p }, msg);
   const yt = st.youtube || {};
   const cs = st.captionStyle || {};
@@ -64,23 +65,37 @@ export default function Settings({ go }) {
         )}
         {sec === "channels" && (
           <>
-            <Panel title={<span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id="youtube" />YouTube</span>} sub="Data API v3 · OAuth desktop app · Shorts upload with publishAt" right={<span style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 500 }}><Dot c={yt.refreshToken ? "mint" : "muted"} />{yt.refreshToken ? `connected · ${yt.channelTitle}` : "not connected"}</span>}>
-              <Row label="Account">{yt.refreshToken
-                ? <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: "var(--mint)", display: "inline-flex" }}>{I.check}</span><span>Connected as <b>{yt.channelTitle || "your channel"}</b></span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); setAskDisconnect(true); }}>disconnect</a></span>
-                : <><Btn primary disabled={!yt.clientId || !yt.clientSecret || busy} onClick={async () => { setBusy(true); await tryAct("youtube_connect", {}, "YouTube connected"); setBusy(false); }}>{busy ? "Waiting for Google…" : "Connect Google account"}</Btn><span className="hint">Your browser opens. Sign in with the account that owns the channel.</span></>}</Row>
-              {askDisconnect && <Confirm text="Disconnect YouTube? Scheduled posts wait until you connect again." yes="Disconnect" no="Keep" onYes={() => { setAskDisconnect(false); tryAct("youtube_disconnect", {}, "Disconnected"); }} onNo={() => setAskDisconnect(false)} />}
+            <Panel title="Post to" sub="where reels and posters go" right={<span style={{ display: "flex", gap: 4 }}>{[["youtube", "YouTube"], ["instagram", "Instagram"], ["tiktok", "TikTok"], ["facebook", "Facebook"], ["folder", "Folder"]].map(([k, l]) => <Btn key={k} small onClick={() => tryAct("add_target", { kind: k }, `${l} added`)}>+ {l}</Btn>)}</span>}>
+              {!(s.targets || []).length && <span className="hint">Add a place to post. YouTube uploads by itself. The others get the file and caption ready.</span>}
+              {(s.targets || []).map((t) => {
+                const patchT = (p) => tryAct("update_target", { id: t.id, patch: p });
+                const linked = t.kind === "youtube" ? !!t.refreshToken : t.kind === "folder" ? !!t.path : false;
+                return (
+                  <div key={t.id} className="insp-group" style={{ border: "1px solid var(--rule)", borderRadius: 6, padding: 10, opacity: t.enabled ? 1 : 0.6 }}>
+                    <div className="insp-head" style={{ borderBottom: 0, paddingBottom: 0 }}><Brand id={t.kind === "folder" ? "youtube" : t.kind} mono={!linked} /><Text value={t.name} onCommit={(v) => patchT({ name: v })} style={{ width: 220, height: 24 }} /><span className="grow" /><Check label="on" checked={t.enabled} onChange={(v) => patchT({ enabled: v })} /><a href="#" className="muted" onClick={(e) => { e.preventDefault(); setRemoveT(t); }}>remove</a></div>
+                    {t.kind === "youtube" && <Row label="Account">{t.refreshToken
+                      ? <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: "var(--mint)", display: "inline-flex" }}>{I.check}</span><span>Connected as <b>{t.channelTitle || t.name}</b></span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); setAskDisconnect(t); }}>disconnect</a></span>
+                      : <><Btn primary disabled={busy} onClick={async () => { setBusy(true); await tryAct("target_connect", { id: t.id }, "YouTube connected"); setBusy(false); }}>{busy ? "Waiting for Google…" : "Connect Google account"}</Btn><span className="hint">Your browser opens. Sign in with the account that owns the channel.</span></>}</Row>}
+                    {t.kind === "folder" && <Row label="Folder"><Text style={W} value={t.path} onCommit={(v) => patchT({ path: v })} placeholder="/Users/you/Dropbox/Reels" /><span className="hint">The file, its cover and a caption text land here at post time.</span></Row>}
+                    {["instagram", "tiktok", "facebook"].includes(t.kind) && <span className="hint">Needs an approved developer app. At post time the file and caption are ready in the reel folder.</span>}
+                    <Row label="Post at"><Text style={{ width: 120 }} value={(t.hours || []).join(", ")} onCommit={(v) => patchT({ hours: v.split(/[\s,]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < 24) })} placeholder="17, 20" /><span className="hint">Local hours, one reel each. Empty: only by hand.</span><Check label="No confirm needed" checked={!!t.autoSchedule} onChange={(v) => patchT({ autoSchedule: v })} /></Row>
+                    <Row label="Format"><select className="input" style={{ width: 150 }} value={t.format || ""} onChange={(e) => patchT({ format: e.target.value })}><option value="">{`Default (${t.kind === "tiktok" ? "TikTok" : t.kind === "instagram" || t.kind === "facebook" ? "Reels" : "Shorts"})`}</option>{FORMATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Row>
+                    {t.kind === "youtube" && <>
+                      <Row label="Privacy"><Seg value={t.privacy || "public"} onChange={(v) => patchT({ privacy: v })} options={[["public", "Public"], ["unlisted", "Unlisted"], ["private", "Private"]]} /><span className="hint">Scheduled uploads stay private until their time.</span></Row>
+                      <Row label="Category id"><Text style={{ width: 70 }} value={t.categoryId} onCommit={(v) => patchT({ categoryId: v })} /><span className="hint">27 = Education, 29 = Nonprofits</span></Row>
+                      <Row label="Title suffix"><Text style={W} value={t.titleSuffix} onCommit={(v) => patchT({ titleSuffix: v })} /></Row>
+                      <Row label="Description footer"><Text style={W} value={t.descriptionFooter} onCommit={(v) => patchT({ descriptionFooter: v })} /><span className="hint">{"{source_url}"} is replaced</span></Row>
+                    </>}
+                  </div>
+                );
+              })}
+              {askDisconnect && <Confirm text={`Disconnect ${askDisconnect.name}? Its scheduled posts wait until you connect again.`} yes="Disconnect" no="Keep" onYes={() => { tryAct("target_disconnect", { id: askDisconnect.id }, "Disconnected"); setAskDisconnect(null); }} onNo={() => setAskDisconnect(null)} />}
+              {removeT && <Confirm text={`Remove ${removeT.name}? Posts already planned for it stay on the calendar and fail.`} yes="Remove" no="Keep" onYes={() => { tryAct("remove_target", { id: removeT.id }, "Removed"); setRemoveT(null); }} onNo={() => setRemoveT(null)} />}
               <Row label=""><a href="#" className="muted" onClick={(e) => { e.preventDefault(); setAdvanced(!advanced); }}>{advanced ? "Hide advanced" : "Advanced"}</a></Row>
               {advanced && <>
-                <Row label="OAuth client id"><Text style={W} value={yt.clientId} onCommit={(v) => patch({ youtube: { clientId: v } })} placeholder="…apps.googleusercontent.com" /><span className="hint">Built in. Change only for your own Google Cloud project.</span></Row>
+                <Row label="OAuth client id"><Text style={W} value={yt.clientId} onCommit={(v) => patch({ youtube: { clientId: v } })} placeholder="…apps.googleusercontent.com" /><span className="hint">Built in, shared by every YouTube target. Change only for your own Google Cloud project.</span></Row>
                 <Row label="OAuth client secret"><Text style={W} type="password" value={yt.clientSecret} onCommit={(v) => patch({ youtube: { clientSecret: v } })} /></Row>
               </>}
-              <Row label="Default privacy"><Seg value={yt.privacy || "public"} onChange={(v) => patch({ youtube: { privacy: v } })} options={[["public", "Public"], ["unlisted", "Unlisted"], ["private", "Private"]]} /><span className="hint">Scheduled uploads stay private until their time.</span></Row>
-              <Row label="Category id"><Text style={{ width: 70 }} value={yt.categoryId} onCommit={(v) => patch({ youtube: { categoryId: v } })} /><span className="hint">27 = Education, 29 = Nonprofits</span></Row>
-              <Row label="Title suffix"><Text style={W} value={yt.titleSuffix} onCommit={(v) => patch({ youtube: { titleSuffix: v } })} /></Row>
-              <Row label="Description footer"><Text style={W} value={yt.descriptionFooter} onCommit={(v) => patch({ youtube: { descriptionFooter: v } })} /><span className="hint">{"{source_url}"} is replaced</span></Row>
-            </Panel>
-            <Panel title={<span style={{ display: "flex", alignItems: "center", gap: 8 }}><Brand id="tiktok" /><Brand id="instagram" /><Brand id="facebook" />TikTok, Instagram, Facebook</span>} right={<span style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 500 }}><Dot c="muted" />not linked</span>}>
-              <span className="hint">Needs an approved developer app. Until then the file and caption wait in the reel folder.</span>
             </Panel>
           </>
         )}

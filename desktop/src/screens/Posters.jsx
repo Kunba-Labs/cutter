@@ -93,7 +93,7 @@ export default function Posters({ go }) {
               </div>
               <div style={{ borderTop: "1px solid var(--rule)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                 <span className="label">Announce</span>
-                <Btn disabled={!p.outputs?.story} onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); tryAct("schedule", { posterId: p.id, channel: "instagram", at: d.toISOString(), title: p.title, caption: `${p.title}\n${f.date || ""}\n${f.programme || ""}\n${f.location || ""}` }, "Planned on the calendar"); go("publish"); }}>Add to the calendar</Btn>
+                <Btn disabled={!p.outputs?.story} onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); const tg = (s.targets || []).filter((t) => t.enabled); const t = tg.find((t) => t.kind === "instagram") || tg[0]; tryAct("schedule", { posterId: p.id, targetId: t?.id, channel: "instagram", at: d.toISOString(), title: p.title, caption: `${p.title}\n${f.date || ""}\n${f.programme || ""}\n${f.location || ""}` }, "Planned on the calendar"); go("publish"); }}>Add to the calendar</Btn>
               </div>
               <span className="hint">{p.folder}</span>
             </div>

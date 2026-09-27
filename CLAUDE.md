@@ -72,6 +72,13 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   strength at 4 fps over the crop). The cover carries the title at 1.5× the reel's title size
   (`captions::cover`). `covers` redoes cover images without re-encoding; `pick_cover` forgets the
   frame and renders the reel again ("New cover" on the Reels screen).
+- **Post targets, not channels.** `targets` table: kind youtube | instagram | tiktok | facebook |
+  folder, own name, hours, format, auto_schedule; a YouTube target holds its own login (the OAuth
+  client in `settings.youtube` is shared, and built in). `post.target_id` says where a post goes,
+  `candidate.targets` (empty = all) which targets a reel is offered to; `autofill` walks targets.
+  A folder target copies file + cover + caption into a drop folder at post time; Instagram/TikTok/
+  Facebook are "by hand" until an approved developer app exists. Watched channels (`channels`)
+  are the ingest side and unrelated. `settings.cadence` is legacy, unused.
 - **Design language**: panels on #1A1D2A with 26 px header strips, magenta #F52ACB the only
   action colour (primary buttons, active tab). Tiffany #0ABAB5 for selection state: segmented
   controls, checks, slider thumbs, links, inspector group heads. Mint = done, the trim timeline

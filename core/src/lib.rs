@@ -97,6 +97,7 @@ impl Library {
         }
         let s = lib.clone();
         std::thread::Builder::new().name("cuttar-scheduler".into()).spawn(move || pipeline::scheduler(s)).map_err(|e| e.to_string())?;
+        lib.migrate_targets();
         Ok(lib)
     }
 
@@ -168,6 +169,53 @@ impl Library {
         p.updated_at = now();
         self.put("posts", &p.id.clone(), &p.scheduled_at.clone(), p);
         self.changed();
+    }
+
+    pub fn save_target(&self, t: &mut Target) {
+        if t.created_at.is_empty() {
+            t.created_at = now();
+        }
+        self.put("targets", &t.id.clone(), &t.created_at.clone(), t);
+        self.changed();
+    }
+
+    /// Enabled targets, oldest first.
+    pub fn targets(&self) -> Vec<Target> {
+        self.all::<Target>("targets").into_iter().filter(|t| t.enabled).collect()
+    }
+
+    /// The target a post goes to: its own, else the first enabled one of its kind.
+    pub fn target_for(&self, p: &Post) -> Option<Target> {
+        if !p.target_id.is_empty() {
+            if let Some(t) = self.get::<Target>("targets", &p.target_id) {
+                return Some(t);
+            }
+        }
+        self.targets().into_iter().find(|t| t.kind == p.channel)
+    }
+
+    /// The YouTube login of a target, with the shared OAuth client.
+    pub fn youtube_auth(&self, t: &Target) -> YoutubeAuth {
+        let base = self.settings().youtube;
+        YoutubeAuth { refresh_token: t.refresh_token.clone(), channel_title: t.channel_title.clone(), privacy: t.privacy.clone(), category_id: t.category_id.clone(), title_suffix: t.title_suffix.clone(), description_footer: t.description_footer.clone(), ..base }
+    }
+
+    /// One-time: the single YouTube login in settings becomes the first target; posts get its id.
+    fn migrate_targets(&self) {
+        if !self.all::<Target>("targets").is_empty() {
+            return;
+        }
+        let s = self.settings();
+        if s.youtube.refresh_token.is_empty() {
+            return;
+        }
+        let hours = s.cadence["youtube"].as_array().map(|h| h.iter().filter_map(|v| v.as_i64()).collect()).unwrap_or_default();
+        let mut t = Target { id: new_id("t"), kind: "youtube".into(), name: if s.youtube.channel_title.is_empty() { "YouTube".into() } else { s.youtube.channel_title.clone() }, hours, refresh_token: s.youtube.refresh_token.clone(), channel_title: s.youtube.channel_title.clone(), privacy: s.youtube.privacy.clone(), category_id: s.youtube.category_id.clone(), title_suffix: s.youtube.title_suffix.clone(), description_footer: s.youtube.description_footer.clone(), ..Default::default() };
+        self.save_target(&mut t);
+        for mut p in self.all::<Post>("posts").into_iter().filter(|p| p.channel == "youtube" && p.target_id.is_empty()) {
+            p.target_id = t.id.clone();
+            self.save_post(&mut p);
+        }
     }
 
     pub fn save_poster(&self, p: &mut Poster) {
@@ -298,6 +346,7 @@ impl Library {
         json!({
             "sources": self.all::<Source>("sources"),
             "channels": self.all::<Channel>("channels"),
+            "targets": self.all::<Target>("targets"),
             "inbox": self.all::<InboxItem>("inbox"),
             "candidates": self.all::<Candidate>("candidates"),
             "renders": self.all::<Render>("renders"),
@@ -705,10 +754,19 @@ impl Library {
                 json!(item)
             }
             "schedule" => {
-                let channel = s("channel").ok_or("channel required")?;
+                // targetId picks the target; channel alone means the first enabled target of that kind.
+                let target = match s("targetId") {
+                    Some(id) => self.get::<Target>("targets", &id).ok_or("no such target")?,
+                    None => {
+                        let kind = s("channel").ok_or("targetId or channel required")?;
+                        self.targets().into_iter().find(|t| t.kind == kind).ok_or_else(|| format!("no {kind} target yet (Settings › Post to)"))?
+                    }
+                };
+                let channel = target.kind.clone();
+                let fmt = if target.format.is_empty() { default_format(&channel).to_string() } else { target.format.clone() };
                 let at = s("at").ok_or("at required")?;
                 let cand = s("candidateId").and_then(|c| self.get::<Candidate>("candidates", &c));
-                let render_id = s("renderId").or_else(|| cand.as_ref().and_then(|c| self.all::<Render>("renders").into_iter().find(|r| r.candidate_id == c.id && r.status == "done" && r.format == default_format(&channel)).map(|r| r.id)));
+                let render_id = s("renderId").or_else(|| cand.as_ref().and_then(|c| self.all::<Render>("renders").into_iter().find(|r| r.candidate_id == c.id && r.status == "done" && r.format == fmt).map(|r| r.id)));
                 let src = cand.as_ref().and_then(|c| self.get::<Source>("sources", &c.source_id));
                 let mut p = Post {
                     id: new_id("p"),
@@ -716,6 +774,7 @@ impl Library {
                     candidate_id: cand.as_ref().map(|c| c.id.clone()),
                     poster_id: s("posterId"),
                     channel,
+                    target_id: target.id.clone(),
                     scheduled_at: at,
                     status: if a["confirmed"].as_bool().unwrap_or(false) { "confirmed" } else { "planned" }.into(),
                     title: s("title").or_else(|| cand.as_ref().map(|c| c.title.clone())).unwrap_or_default(),
@@ -884,17 +943,69 @@ impl Library {
             }
             "tools" => json!(tools::detect(&self.settings().claude_bin)),
             "install_whisper" => json!(tools::install_whisper()?),
+            "add_target" => {
+                let kind = s("kind").unwrap_or_else(|| "youtube".into());
+                let mut t = Target { id: new_id("t"), kind: kind.clone(), name: s("name").unwrap_or_else(|| match kind.as_str() { "youtube" => "YouTube".into(), "instagram" => "Instagram".into(), "tiktok" => "TikTok".into(), "facebook" => "Facebook".into(), _ => "Folder".into() }), path: s("path").unwrap_or_default(), hours: a["hours"].as_array().map(|h| h.iter().filter_map(|v| v.as_i64()).collect()).unwrap_or_default(), ..Default::default() };
+                if kind != "youtube" && kind != "folder" {
+                    t.title_suffix = String::new();
+                }
+                self.save_target(&mut t);
+                json!(t)
+            }
+            "update_target" => {
+                let id = id()?;
+                let mut t: Target = self.get("targets", &id).ok_or("no such target")?;
+                let mut v = serde_json::to_value(&t).unwrap();
+                merge(&mut v, &a["patch"]);
+                t = serde_json::from_value(v).map_err(|e| e.to_string())?;
+                self.save_target(&mut t);
+                json!(t)
+            }
+            "remove_target" => {
+                let id = id()?;
+                let _ = self.db.lock().delete("targets", &id);
+                self.changed();
+                json!(true)
+            }
+            "target_connect" => {
+                // YouTube: the browser opens, the login lands on this target.
+                let id = id()?;
+                let mut t: Target = self.get("targets", &id).ok_or("no such target")?;
+                let auth = youtube::connect(&self.youtube_auth(&t))?;
+                t.refresh_token = auth.refresh_token;
+                t.channel_title = auth.channel_title.clone();
+                if t.name.is_empty() || t.name == "YouTube" {
+                    t.name = auth.channel_title;
+                }
+                self.save_target(&mut t);
+                json!(t)
+            }
+            "target_disconnect" => {
+                let id = id()?;
+                let mut t: Target = self.get("targets", &id).ok_or("no such target")?;
+                t.refresh_token.clear();
+                t.channel_title.clear();
+                self.save_target(&mut t);
+                json!(t)
+            }
             "youtube_connect" => {
-                let mut st = self.settings();
-                st.youtube = youtube::connect(&st.youtube)?;
-                self.save_settings(&st);
-                json!(st.youtube)
+                // Kept for the CLI: connects the first YouTube target, creating one if needed.
+                let mut t = self.all::<Target>("targets").into_iter().find(|t| t.kind == "youtube").unwrap_or_else(|| Target { id: new_id("t"), kind: "youtube".into(), name: "YouTube".into(), ..Default::default() });
+                let auth = youtube::connect(&self.youtube_auth(&t))?;
+                t.refresh_token = auth.refresh_token;
+                t.channel_title = auth.channel_title.clone();
+                if t.name == "YouTube" {
+                    t.name = auth.channel_title;
+                }
+                self.save_target(&mut t);
+                json!(t)
             }
             "youtube_disconnect" => {
-                let mut st = self.settings();
-                st.youtube.refresh_token.clear();
-                st.youtube.channel_title.clear();
-                self.save_settings(&st);
+                for mut t in self.all::<Target>("targets").into_iter().filter(|t| t.kind == "youtube") {
+                    t.refresh_token.clear();
+                    t.channel_title.clear();
+                    self.save_target(&mut t);
+                }
                 json!(true)
             }
             "shutdown" => {

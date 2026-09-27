@@ -150,7 +150,16 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
                 let _ = std::fs::remove_file(&prev);
                 src.stage = stage_before;
                 lib.save_source(&mut src);
-                return Ok(json!({ "message": format!("{}p {} · edits kept", src.meta["height"], src.meta["vcodec"].as_str().unwrap_or("")) }));
+                // Every reel that was rendered from the old file is rendered again from the new one.
+                let done: Vec<Render> = lib.all::<Render>("renders").into_iter().filter(|r| r.source_id == src.id && r.status == "done").collect();
+                let mut n = 0;
+                for c in lib.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == src.id && !c.discarded) {
+                    for f in done.iter().filter(|r| r.candidate_id == c.id).map(|r| r.format.clone()).collect::<std::collections::BTreeSet<_>>() {
+                        lib.enqueue("render", &c.id, &format!("{} · {f}", c.title), json!({ "format": f }));
+                        n += 1;
+                    }
+                }
+                return Ok(json!({ "message": format!("{}p {} · edits kept · {n} reels rendering again", src.meta["height"], src.meta["vcodec"].as_str().unwrap_or("")) }));
             }
             Err(e) => {
                 let _ = std::fs::rename(&prev, dir.join("source.mp4"));

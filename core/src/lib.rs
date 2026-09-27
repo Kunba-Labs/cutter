@@ -424,11 +424,8 @@ impl Library {
                 let id = id()?;
                 let idx = a["index"].as_u64().ok_or("index required")? as usize;
                 let wi = a["word"].as_u64().ok_or("word required")? as usize;
-                // Several words are fine ("Allah SWT"): they share the old word's time span evenly.
+                // Several words are fine ("Allah SWT"): they share the old word's time span evenly. Empty drops the word.
                 let new: Vec<String> = s("text").unwrap_or_default().split_whitespace().map(String::from).collect();
-                if new.is_empty() {
-                    return Err("type a word".into());
-                }
                 let mut t: Transcript = self.get("transcripts", &id).ok_or("no transcript")?;
                 let seg = t.segments.get_mut(idx).ok_or("no such line")?;
                 let mut tokens: Vec<String> = seg.text.split_whitespace().map(String::from).collect();

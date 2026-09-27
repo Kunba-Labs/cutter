@@ -202,7 +202,7 @@ export default function Reels({ nav, go }) {
               <>
                 <Field label={`Word · ${fmt(current.s)}`}><Text value={current.w} onCommit={async (v) => { const r = await tryAct("edit_word", { id: sourceId, index: current.gi, word: current.wi, text: v }, "Word corrected"); if (r) refreshSeg(r, current.gi); }} /></Field>
                 <Field label="Its line"><Text area rows={3} value={currentSeg?.text || ""} onCommit={async (v) => { const r = await tryAct("edit_segment", { id: sourceId, index: current.gi, text: v }, "Line corrected"); if (r) refreshSeg(r, current.gi); }} /></Field>
-                <span className="hint">Click a word in the strip to pick it. Same word count keeps the timing.</span>
+                <span className="hint">Click a word in the strip to pick it. More words share its time. Empty drops it.</span>
               </>
             ) : <span className="hint">Play, or click a word in the strip below the preview.</span>}
           </div>

@@ -12,6 +12,12 @@ export default function Publish({ go }) {
   const [week, setWeek] = useState(0);
   const [selId, setSelId] = useState(null);
   const [view, setView] = useState("week");
+  const [dragId, setDragId] = useState(null);
+  const [overKey, setOverKey] = useState(null);
+  // Same clock time on the dropped day. Planned or failed posts move; confirmed and posted ones are already on their way.
+  const dropOn = (day) => { const p = s.posts.find((x) => x.id === dragId); setOverKey(null); setDragId(null); if (!p || !["planned", "failed"].includes(p.status)) return; const t = new Date(p.scheduledAt); const at = new Date(day); at.setHours(t.getHours(), t.getMinutes(), 0, 0); tryAct("update_post", { id: p.id, patch: { scheduledAt: at.toISOString() } }); };
+  // The first hour of the target's schedule, from tomorrow on, that has no post yet.
+  const nextSlot = (t) => { const hours = t.hours?.length ? t.hours : [17]; for (let d = 1; d < 90; d++) { for (const h of hours) { const at = new Date(); at.setDate(at.getDate() + d); at.setHours(h, 0, 0, 0); const taken = s.posts.some((p) => p.targetId === t.id && Math.abs(new Date(p.scheduledAt) - at) < 3600000); if (!taken) return at; } } return null; };
   const post = s.posts.find((p) => p.id === selId);
   const monday = new Date(); monday.setHours(0, 0, 0, 0); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + week * 7);
   const days = [...Array(7)].map((_, i) => { const d = new Date(monday); d.setDate(d.getDate() + i); return d; });
@@ -35,7 +41,7 @@ export default function Publish({ go }) {
           <span className="hint">One reel per target per listed hour, oldest approved first. Planned posts wait for your confirm.</span>
         </Panel>
         <Panel title={`Unscheduled · ${unscheduled.length}`} className="grow">
-          {unscheduled.slice(0, 20).map((r) => { const c = s.candidates.find((c) => c.id === r.candidateId); return <div key={r.id} className="ell" style={{ fontSize: 13, color: "var(--text-2)", cursor: "pointer" }} onClick={() => { if (!firstTarget) return; const at = new Date(); at.setDate(at.getDate() + 1); at.setHours(firstTarget.hours?.[0] ?? 17, 0, 0, 0); tryAct("schedule", { candidateId: r.candidateId, targetId: firstTarget.id, at: at.toISOString() }, "Planned for tomorrow"); }}>{c?.title || r.candidateId}</div>; })}
+          {unscheduled.slice(0, 20).map((r) => { const c = s.candidates.find((c) => c.id === r.candidateId); return <div key={r.id} className="ell" style={{ fontSize: 13, color: "var(--text-2)", cursor: "pointer" }} onClick={() => { if (!firstTarget) return; const at = nextSlot(firstTarget); if (!at) return; tryAct("schedule", { candidateId: r.candidateId, targetId: firstTarget.id, at: at.toISOString() }, `Planned for ${at.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}`); }}>{c?.title || r.candidateId}</div>; })}
           {!unscheduled.length && <span className="hint">Every rendered reel is on the calendar.</span>}
         </Panel>
       </div>
@@ -45,9 +51,9 @@ export default function Publish({ go }) {
           {view === "week" ? (
             <div className="cal">
               {days.map((d) => { const k = localKey(d.toISOString()); const ps = s.posts.filter((p) => localKey(p.scheduledAt) === k).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)); return (
-                <div key={k} className={`day ${k === todayKey ? "today" : ""}`}>
+                <div key={k} className={`day ${k === todayKey ? "today" : ""} ${overKey === k && dragId ? "over" : ""}`} onDragOver={(e) => { if (dragId) { e.preventDefault(); if (overKey !== k) setOverKey(k); } }} onDragLeave={() => overKey === k && setOverKey(null)} onDrop={(e) => { e.preventDefault(); dropOn(d); }}>
                   <div className="day-head"><span>{d.toLocaleDateString([], { weekday: "short" })}</span><span style={{ fontWeight: 500 }}>{d.getDate()}</span></div>
-                  <div className="day-body">{ps.map((p) => <div key={p.id} className={`post ${p.status} ${post?.id === p.id ? "on" : ""}`} onClick={() => setSelId(p.id)}><span className="t"><span>{hhmm(p.scheduledAt)}</span><span className="muted" style={{ display: "flex", alignItems: "center", gap: 4 }}><Brand id={p.channel} size={11} />{p.status === "posted" ? "✓" : p.status === "failed" ? "✕" : ""}</span></span><span className="ell">{p.title || "(poster)"}</span></div>)}</div>
+                  <div className="day-body">{ps.map((p) => <div key={p.id} className={`post ${p.status} ${post?.id === p.id ? "on" : ""} ${dragId === p.id ? "dragging" : ""}`} draggable={["planned", "failed"].includes(p.status)} onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", p.id); setDragId(p.id); }} onDragEnd={() => { setDragId(null); setOverKey(null); }} onClick={() => setSelId(p.id)} title={["planned", "failed"].includes(p.status) ? "Drag to another day" : undefined}><span className="t"><span>{hhmm(p.scheduledAt)}</span><span className="muted" style={{ display: "flex", alignItems: "center", gap: 4 }}><Brand id={p.channel} size={11} />{p.status === "posted" ? "✓" : p.status === "failed" ? "✕" : ""}</span></span><span className="ell">{p.title || "(poster)"}</span></div>)}</div>
                 </div>
               ); })}
             </div>

@@ -9,7 +9,7 @@ if (import.meta.env.DEV) {
 
 // No WebKit context menu (Reload, Inspect…) outside text fields, and no dragging images or links around.
 document.addEventListener("contextmenu", (e) => { if (!e.target.closest("input, textarea, [data-selectable]")) e.preventDefault(); });
-document.addEventListener("dragstart", (e) => { if (!e.target.closest("input, textarea")) e.preventDefault(); });
+document.addEventListener("dragstart", (e) => { if (!e.target.closest("input, textarea, [draggable='true']")) e.preventDefault(); });
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>

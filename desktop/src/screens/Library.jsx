@@ -126,6 +126,7 @@ function SourceInfo({ x, s, go }) {
           <span>Source</span><span className="ell">{x.url || x.path}</span>
           <span>Video</span><span>{x.meta?.width ? `${x.meta.width}×${x.meta.height} · ` : ""}{fmtLong(x.duration)}</span>
           <span>Language</span><span>{x.langOverride ? `${x.langOverride.toUpperCase()} (override)` : x.language ? `${x.language.toUpperCase()} (auto)` : "auto"} · <a href="#" onClick={(e) => { e.preventDefault(); go("library", { sourceId: x.id, view: "transcript" }); }}>change</a></span>
+          {x.videoPath && x.meta?.width && <><span>Source</span><span className={x.meta.issues?.length ? "coral" : ""}>{`${x.meta.width}×${x.meta.height} · ${x.meta.vcodec || "?"} · ${Math.round(x.meta.fps || 0)} fps · ${((x.meta.kbps || 0) / 1000).toFixed(1)} Mbps`}{x.meta.issues?.length ? ` · check: ${x.meta.issues.join(", ")}` : ""}{x.previewPath ? " · preview copy" : ""}</span></>}
           <span>Folder</span><span className="ell">{x.folder}</span>
           {x.error && <><span>Error</span><span className="coral">{x.error}</span></>}
         </div>
@@ -134,7 +135,7 @@ function SourceInfo({ x, s, go }) {
           {step("transcribe", "Transcript", ["transcribed", "detecting", "review", "done"].includes(x.stage) || cands.length > 0)}
           {step("detect", "Find reels", cands.length > 0, cands.length ? `${cands.length} candidates` : "")}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Dot c={cands.some((c) => c.approved) ? (cands.every((c) => c.approved || c.discarded) ? "mint" : "pink") : x.stage === "review" ? "pink" : ""} /><span style={{ width: 74, color: "var(--text-2)" }}>Review</span><span className={x.stage === "review" ? "pink" : "muted"}>{cands.length ? `${cands.filter((c) => c.approved).length} of ${cands.length} ticked` : "waiting"}</span></div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Dot c={renders.length ? "mint" : ""} /><span style={{ width: 74, color: "var(--text-2)" }}>Render</span><span className="muted">{renders.length ? `${renders.length} files` : "waiting"}</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Dot c={renders.length ? "mint" : ""} /><span style={{ width: 74, color: "var(--text-2)" }}>Render</span><span className="muted">{renders.length ? `${renders.length} files` : "waiting"}</span>{renders.some((r) => r.info?.issues?.length) ? <span className="coral">{renders.filter((r) => r.info?.issues?.length).length} to check</span> : renders.length > 0 && renders.every((r) => r.info?.width) ? <span className="mint">all high quality</span> : null}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Dot c={posts.some((p) => p.status === "posted") ? "mint" : ""} /><span style={{ width: 74, color: "var(--text-2)" }}>Publish</span><span className="muted">{posts.length ? `${posts.filter((p) => p.status === "posted").length} out · ${posts.filter((p) => p.status !== "posted").length} planned` : "waiting"}</span></div>
         </div>
       </div>

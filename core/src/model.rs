@@ -153,6 +153,9 @@ pub struct Render {
     pub srt_path: Option<String>,
     pub status: String,
     pub error: Option<String>,
+    /// Measured after the render: width, height, fps, vcodec, kbps, seconds, mb, issues (empty = high quality).
+    #[serde(default)]
+    pub info: Value,
     pub created_at: String,
 }
 

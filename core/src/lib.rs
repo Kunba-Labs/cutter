@@ -450,6 +450,43 @@ impl Library {
                 self.save_candidate(&mut c);
                 self.dispatch("render", json!({ "candidateIds": [id] }))?
             }
+            "verify_renders" => {
+                // Measure finished renders again (sourceId, candidateIds, or all): fills info + issues.
+                let mut ids: Vec<String> = a["candidateIds"].as_array().map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+                if let Some(sid) = s("sourceId") {
+                    ids.extend(self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == sid).map(|c| c.id));
+                }
+                let all = ids.is_empty();
+                let st = self.settings();
+                let mut n = 0;
+                let mut flagged = 0;
+                for mut r in self.all::<Render>("renders").into_iter().filter(|r| r.status == "done" && (all || ids.contains(&r.candidate_id))) {
+                    let Some(c) = self.get::<Candidate>("candidates", &r.candidate_id) else { continue };
+                    let (w, h, _) = ffmpeg::format_spec(&r.format);
+                    let src = self.get::<Source>("sources", &r.source_id);
+                    let want_audio = src.as_ref().map(|s| s.meta["hasAudio"].as_bool().unwrap_or(true)).unwrap_or(true);
+                    let (start, end) = ((c.start - 0.25).max(0.0), (c.end + 0.35).min(src.as_ref().and_then(|s| s.duration).unwrap_or(f64::MAX)));
+                    let want = (end - start) + if st.end_card.enabled && st.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(|p| Path::new(p).exists()).unwrap_or(false) { st.end_card.seconds.clamp(0.5, 8.0) } else { 0.0 };
+                    match ffmpeg::probe(Path::new(&r.path)) {
+                        Ok(pr) => {
+                            let issues = ffmpeg::quality_issues(&pr, w, h, want, want_audio);
+                            if !issues.is_empty() {
+                                flagged += 1;
+                            }
+                            r.info = ffmpeg::info_json(&pr, Path::new(&r.path));
+                            r.info["issues"] = json!(issues);
+                        }
+                        Err(e) => {
+                            flagged += 1;
+                            r.info = json!({ "issues": [format!("unreadable: {e}")] });
+                        }
+                    }
+                    self.put("renders", &r.id.clone(), &r.created_at.clone(), &r);
+                    n += 1;
+                }
+                self.changed();
+                json!({ "checked": n, "flagged": flagged })
+            }
             "covers" => {
                 // Cover images again for every finished render of these reels (title or frame changed). No re-encode.
                 let mut ids: Vec<String> = a["candidateIds"].as_array().map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();

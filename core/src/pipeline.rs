@@ -228,6 +228,19 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
         src.meta["hasAudio"] = json!(probe.has_audio);
         src.meta["fps"] = json!(probe.fps);
         src.meta["vcodec"] = json!(probe.vcodec);
+        src.meta["kbps"] = json!(probe.kbps);
+        // The file must be a real video: a size, a length, something to hear when expected.
+        let mut issues: Vec<String> = Vec::new();
+        if probe.width < 640 || probe.height < 360 {
+            issues.push(format!("only {}×{}", probe.width, probe.height));
+        }
+        if probe.duration < 1.0 {
+            issues.push("no length".into());
+        }
+        if !probe.has_audio {
+            issues.push("no audio".into());
+        }
+        src.meta["issues"] = json!(issues);
         // The in-app player wants H.264/AAC at 1080p or less; anything else gets a preview copy.
         let preview = dir.join("preview.mp4");
         let _ = std::fs::remove_file(&preview);
@@ -425,6 +438,19 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
             r.status = "done".into();
             r.cover_path = Some(cover.display().to_string()).filter(|_| cover.exists());
             r.srt_path = Some(srt.display().to_string());
+            // Measure what came out; a shortfall is kept on the render, and in the job log.
+            match ffmpeg::probe(&out) {
+                Ok(pr) => {
+                    let want = (end - start) + end_card.map(|(_, s)| s).unwrap_or(0.0);
+                    let issues = ffmpeg::quality_issues(&pr, w, h, want, has_audio);
+                    r.info = ffmpeg::info_json(&pr, &out);
+                    r.info["issues"] = json!(issues);
+                    lib.job_log(&job.id, &format!("{}×{} · {:.0} fps · {} · {} kbps · {:.1} s{}", pr.width, pr.height, pr.fps, pr.vcodec, pr.kbps, pr.duration, if issues.is_empty() { String::new() } else { format!(" · CHECK: {}", issues.join(", ")) }));
+                }
+                Err(e) => {
+                    r.info = json!({ "issues": [format!("unreadable: {e}")] });
+                }
+            }
             // Older renders of the same reel+format are replaced.
             let _ = lib.db.lock().delete_where::<Render>("renders", |o| o.candidate_id == c.id && o.format == format && o.id != r.id);
             lib.put("renders", &r.id, &r.created_at, &r);

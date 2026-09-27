@@ -18,6 +18,36 @@ pub struct Probe {
     /// "h264" | "vp9" | "av1" | …
     pub vcodec: String,
     pub acodec: String,
+    /// Whole-file bitrate in kbit/s (video + audio).
+    pub kbps: i64,
+}
+
+/// What a finished file must be: the asked size, the asked length within a second, at least
+/// 24 fps, a real bitrate, and audio when the source had it. Empty = fine.
+pub fn quality_issues(p: &Probe, width: i64, height: i64, seconds: f64, want_audio: bool) -> Vec<String> {
+    let mut v = Vec::new();
+    if p.width != width || p.height != height {
+        v.push(format!("{}×{} instead of {width}×{height}", p.width, p.height));
+    }
+    if (p.duration - seconds).abs() > 1.0 {
+        v.push(format!("{:.1} s instead of {seconds:.1} s", p.duration));
+    }
+    if p.fps < 23.9 {
+        v.push(format!("{:.0} fps", p.fps));
+    }
+    if p.kbps < 2500 {
+        v.push(format!("{} kbps", p.kbps));
+    }
+    if want_audio && !p.has_audio {
+        v.push("no audio".into());
+    }
+    v
+}
+
+/// Facts of a file for the UI: size, fps, codec, bitrate, length.
+pub fn info_json(p: &Probe, path: &Path) -> serde_json::Value {
+    let mb = std::fs::metadata(path).map(|m| m.len() as f64 / 1_048_576.0).unwrap_or(0.0);
+    serde_json::json!({ "width": p.width, "height": p.height, "fps": (p.fps * 100.0).round() / 100.0, "vcodec": p.vcodec, "acodec": p.acodec, "kbps": p.kbps, "seconds": (p.duration * 10.0).round() / 10.0, "mb": (mb * 10.0).round() / 10.0 })
 }
 
 /// "30000/1001" → 29.97
@@ -40,6 +70,7 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
         fps: video["avg_frame_rate"].as_str().and_then(parse_rate).or_else(|| video["r_frame_rate"].as_str().and_then(parse_rate)).unwrap_or(30.0),
         vcodec: video["codec_name"].as_str().unwrap_or_default().to_string(),
         acodec: audio.as_ref().and_then(|a| a["codec_name"].as_str()).unwrap_or_default().to_string(),
+        kbps: v["format"]["bit_rate"].as_str().and_then(|b| b.parse::<i64>().ok()).unwrap_or(0) / 1000,
     })
 }
 

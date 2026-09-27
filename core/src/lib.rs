@@ -388,6 +388,36 @@ impl Library {
                 });
                 json!(self.enqueue(&stage, &id, &src.title, json!({})))
             }
+            "pick_cover" => {
+                // Forget the chosen frame and render the reel's formats again: the next render picks afresh.
+                let id = id()?;
+                let mut c: Candidate = self.get("candidates", &id).ok_or("no such reel")?;
+                c.cover_t = None;
+                self.save_candidate(&mut c);
+                self.dispatch("render", json!({ "candidateIds": [id] }))?
+            }
+            "covers" => {
+                // Cover images again for every finished render of these reels (title or frame changed). No re-encode.
+                let mut ids: Vec<String> = a["candidateIds"].as_array().map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+                if let Some(sid) = s("sourceId") {
+                    ids.extend(self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == sid).map(|c| c.id));
+                }
+                let mut n = 0;
+                for r in self.all::<Render>("renders").into_iter().filter(|r| r.status == "done" && ids.contains(&r.candidate_id)) {
+                    let Some(c) = self.get::<Candidate>("candidates", &r.candidate_id) else { continue };
+                    match pipeline::make_cover(self, &c, &r.format) {
+                        Ok(p) => {
+                            let mut r = r;
+                            r.cover_path = Some(p.display().to_string());
+                            self.put("renders", &r.id.clone(), &r.created_at.clone(), &r);
+                            n += 1;
+                        }
+                        Err(e) => log::warn!("cover {} {}: {e}", c.id, r.format),
+                    }
+                }
+                self.changed();
+                json!(n)
+            }
             "redownload" => {
                 // The best stream again; transcript, reels and edits stay.
                 let id = id()?;

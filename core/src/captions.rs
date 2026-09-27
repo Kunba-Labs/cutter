@@ -44,6 +44,14 @@ pub fn is_rtl(lang: &str) -> bool {
     matches!(lang, "ar" | "ur" | "fa" | "he" | "ps" | "sd")
 }
 
+/// Only the styled title, shown for a minute: burned onto the cover frame.
+pub fn cover(style: &CaptionStyle, width: i64, height: i64, extra_bottom: f64, language: &str, title: &str, watermark: &str) -> String {
+    let mut st = style.clone();
+    st.hook = true;
+    st.hook_seconds = 60.0;
+    build(&CaptionSpec { segments: &[], translation: &[], clip_start: 0.0, clip_end: 60.0, width, height, extra_bottom, style: &st, language, hook: title, watermark, use_translation: false })
+}
+
 pub fn build(c: &CaptionSpec) -> String {
     let st = c.style;
     let rtl = is_rtl(c.language);

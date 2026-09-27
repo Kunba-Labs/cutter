@@ -59,6 +59,8 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("list_jobs", "The job queue with progress and messages.", r#"{}"#, "", "jobs"),
     ("cancel_job", "Cancel a queued or running job.", r#"{"id":{"type":"string"}}"#, "id", "cancel_job"),
     ("retry_job", "Queue a failed job again.", r#"{"id":{"type":"string"}}"#, "id", "retry_job"),
+    ("pick_cover", "Choose a reel's cover frame again (sharpness pass + brain) and render its formats again.", r#"{"id":{"type":"string"}}"#, "id", "pick_cover"),
+    ("covers", "Redo the cover images of finished renders (after a title or frame change); no re-encode. sourceId or candidateIds.", r#"{"sourceId":{"type":"string"},"candidateIds":{"type":"array","items":{"type":"string"}}}"#, "", "covers"),
     ("redownload", "Fetch a YouTube source's best stream again; transcript, reels and edits stay.", r#"{"id":{"type":"string"}}"#, "id", "redownload"),
     ("remove_job", "Drop one job from the queue, whatever its state.", r#"{"id":{"type":"string"}}"#, "id", "remove_job"),
     ("add_channel", "Watch a YouTube channel or playlist URL. intervalH, minLenS, titleRegex, since (YYYY-MM-DD), autoProcess, autoApproveScore, autoSchedule.", r#"{"url":{"type":"string"},"name":{"type":"string"},"intervalH":{"type":"integer"},"minLenS":{"type":"integer"},"titleRegex":{"type":"string"},"since":{"type":"string"},"autoProcess":{"type":"boolean"},"autoApproveScore":{"type":"integer"},"autoSchedule":{"type":"boolean"}}"#, "url", "add_channel"),

@@ -210,9 +210,48 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
 }
 
 /// One frame at `t`, cropped like the reel, as JPEG.
-pub fn cover(src: &Path, t: f64, out: &Path, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64, z: f64) -> Result<(), String> {
-    let vf = format!("{},scale={}:{}", crop_filter_z(src_w, src_h, width, height, cx, cy, z), width, height);
-    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "3"]).arg(out)).map(|_| ())
+/// One frame at `t`, cropped like the reel, lightly sharpened, with the title burned in when `ass` is given.
+#[allow(clippy::too_many_arguments)]
+pub fn cover(src: &Path, t: f64, out: &Path, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64, z: f64, ass: Option<&Path>) -> Result<(), String> {
+    let mut vf = format!("{},scale={}:{}:flags=lanczos,unsharp=5:5:0.6:5:5:0.0", crop_filter_z(src_w, src_h, width, height, cx, cy, z), width, height);
+    if let Some(a) = ass {
+        vf.push_str(&format!(",ass='{}'", ass_path_arg(a)));
+    }
+    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "2"]).arg(out)).map(|_| ())
+}
+
+/// The sharpest frame in each of `n` equal windows of the cut (mean Sobel edge strength at 4 fps
+/// over the reel's crop), so a blink or a motion-blurred frame never reaches the sheet.
+#[allow(clippy::too_many_arguments)]
+pub fn sharp_times(src: &Path, start: f64, end: f64, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64, z: f64, n: usize) -> Result<Vec<f64>, String> {
+    let span = (end - start).max(0.5);
+    let pad = (span * 0.08).min(0.5);
+    let (lo, hi) = (start + pad, end - pad);
+    let vf = format!("{},scale=360:-2,fps=4,format=gray,sobel,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", crop_filter_z(src_w, src_h, width, height, cx, cy, z));
+    let out = Command::new(crate::tools::ffmpeg_bin()).args(["-hide_banner", "-nostats", "-loglevel", "error", "-ss", &format!("{lo:.3}"), "-to", &format!("{hi:.3}")]).arg("-i").arg(src).args(["-vf", &vf, "-f", "null", "-"]).output().map_err(|e| format!("ffmpeg: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut scored: Vec<(f64, f64)> = Vec::new();
+    let mut t = None;
+    for line in text.lines() {
+        if let Some(p) = line.split("pts_time:").nth(1) {
+            t = p.trim().parse::<f64>().ok();
+        } else if let (Some(v), Some(tt)) = (line.strip_prefix("lavfi.signalstats.YAVG="), t) {
+            if let Ok(v) = v.trim().parse::<f64>() {
+                scored.push((lo + tt, v));
+            }
+        }
+    }
+    if scored.len() < n {
+        return Err(format!("{} scored frames", scored.len()));
+    }
+    let w = (hi - lo) / n as f64;
+    let times = (0..n)
+        .map(|i| {
+            let (a, b) = (lo + w * i as f64, lo + w * (i + 1) as f64);
+            scored.iter().filter(|(t, _)| *t >= a - 1e-6 && *t < b).max_by(|x, y| x.1.total_cmp(&y.1)).map(|(t, _)| *t).unwrap_or(a + w / 2.0)
+        })
+        .collect();
+    Ok(times)
 }
 
 /// Nine frames across the cut, cropped like the reel, tiled 3×3 and numbered, for the brain
@@ -223,7 +262,10 @@ pub fn cover_sheet(src: &Path, start: f64, end: f64, dir: &Path, src_w: i64, src
     let n = 9usize;
     let span = (end - start).max(0.5);
     let pad = (span * 0.08).min(0.5);
-    let times: Vec<f64> = (0..n).map(|i| start + pad + (span - 2.0 * pad) * (i as f64 + 0.5) / n as f64).collect();
+    let times: Vec<f64> = sharp_times(src, start, end, src_w, src_h, width, height, cx, cy, z, n).unwrap_or_else(|e| {
+        log::warn!("sharpness pass: {e}; even spacing instead");
+        (0..n).map(|i| start + pad + (span - 2.0 * pad) * (i as f64 + 0.5) / n as f64).collect()
+    });
     let (fw, gap) = (360i64, 8i64);
     let fh = ((fw as f64 * height as f64 / width as f64 / 2.0).round() as i64) * 2;
     let vf = format!("{},scale={fw}:{fh}", crop_filter_z(src_w, src_h, width, height, cx, cy, z));

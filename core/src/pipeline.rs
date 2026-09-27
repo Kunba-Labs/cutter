@@ -114,6 +114,49 @@ fn pick_cover(lib: &Library, job: &Job, s: &Settings, c: &Candidate, video: &Pat
     }
 }
 
+/// The reel's caption template by name (else the library default), its caption position, and
+/// the title look borrowed from the title template.
+pub fn reel_style(s: &Settings, c: &Candidate) -> CaptionStyle {
+    let mut style = c.style.as_deref().and_then(|name| s.caption_templates.iter().find(|t| t.name == name).cloned()).unwrap_or(s.caption_style.clone());
+    if let Some(p) = c.caption_pct {
+        style.position_pct = p.clamp(4, 70);
+    }
+    if let Some(h) = c.hook_style.as_deref().and_then(|name| s.caption_templates.iter().find(|t| t.name == name)) {
+        style.hook_font = h.hook_font.clone();
+        style.hook_size = h.hook_size;
+        style.hook_color = h.hook_color.clone();
+        style.hook_boxed = h.hook_boxed;
+        style.hook_box_color = h.hook_box_color.clone();
+        style.hook_uppercase = h.hook_uppercase;
+        style.hook_bold = h.hook_bold;
+        style.hook_italic = h.hook_italic;
+        style.hook_pct = h.hook_pct;
+        style.hook_seconds = h.hook_seconds;
+        style.hook = h.hook;
+    }
+    style
+}
+
+/// `{format}-cover.jpg` for a reel: the chosen frame (else one second in), the reel's crop,
+/// and the styled title burned in. Cheap, so it can be redone when a title changes.
+pub fn make_cover(lib: &Library, c: &Candidate, format: &str) -> Result<PathBuf, String> {
+    let s = lib.settings();
+    let src = source(lib, &c.source_id)?;
+    let video = PathBuf::from(src.video_path.clone().ok_or("no video")?);
+    let (w, h, extra) = ffmpeg::format_spec(format);
+    let (sw, sh) = (src.meta["width"].as_i64().unwrap_or(1920), src.meta["height"].as_i64().unwrap_or(1080));
+    let (cx, cy, cz) = (c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5), c.crop["z"].as_f64().unwrap_or(1.0));
+    let dir = PathBuf::from(&src.folder).join(slug(&c.title));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let language = lib.get::<Transcript>("transcripts", &src.id).map(|t| t.language).unwrap_or_default();
+    let title = if c.hook.trim().is_empty() { c.title.as_str() } else { c.hook.as_str() };
+    let ass = dir.join(format!("{format}-cover.ass"));
+    std::fs::write(&ass, captions::cover(&reel_style(&s, c), w, h, extra, &language, title, &s.channel_name)).map_err(|e| e.to_string())?;
+    let out = dir.join(format!("{format}-cover.jpg"));
+    ffmpeg::cover(&video, c.cover_t.unwrap_or(c.start + 1.0), &out, sw, sh, w, h, cx, cy, cz, Some(&ass))?;
+    Ok(out)
+}
+
 fn set_stage(lib: &Library, src: &mut Source, stage: &str, error: Option<String>) {
     src.stage = stage.into();
     src.error = error;
@@ -334,25 +377,7 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let out = dir.join(format!("{format}.mp4"));
     let lead = 0.25;
     let (start, end) = ((c.start - lead).max(0.0), (c.end + 0.35).min(src.duration.unwrap_or(f64::MAX)));
-    // The reel's template by name, else the library default.
-    let mut style = c.style.as_deref().and_then(|name| s.caption_templates.iter().find(|t| t.name == name).cloned()).unwrap_or(s.caption_style.clone());
-    if let Some(p) = c.caption_pct {
-        style.position_pct = p.clamp(4, 70);
-    }
-    // The title can borrow its look from another template.
-    if let Some(h) = c.hook_style.as_deref().and_then(|name| s.caption_templates.iter().find(|t| t.name == name)) {
-        style.hook_font = h.hook_font.clone();
-        style.hook_size = h.hook_size;
-        style.hook_color = h.hook_color.clone();
-        style.hook_boxed = h.hook_boxed;
-        style.hook_box_color = h.hook_box_color.clone();
-        style.hook_uppercase = h.hook_uppercase;
-        style.hook_bold = h.hook_bold;
-        style.hook_italic = h.hook_italic;
-        style.hook_pct = h.hook_pct;
-        style.hook_seconds = h.hook_seconds;
-        style.hook = h.hook;
-    }
+    let style = reel_style(&s, &c);
     let ass = dir.join(format!("{format}.ass"));
     // One caption language: the translation when one is chosen and this reel has it, else the spoken words.
     // The language decides font and size (RTL scripts), so it must match what is actually drawn.
@@ -372,13 +397,18 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     );
     match res {
         Ok(()) => {
-            let cover = dir.join(format!("{format}-cover.jpg"));
             let (cx, cy, cz) = (c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5), c.crop["z"].as_f64().unwrap_or(1.0));
-            let cover_t = match c.cover_t {
-                Some(t) => t,
-                None => pick_cover(lib, job, &s, &c, &video, &dir.join(format!(".cover-{format}")), (sw, sh, w, h, cx, cy, cz)),
+            let mut c = c.clone();
+            if c.cover_t.is_none() {
+                c.cover_t = Some(pick_cover(lib, job, &s, &c, &video, &dir.join(format!(".cover-{format}")), (sw, sh, w, h, cx, cy, cz)));
+            }
+            let cover = match make_cover(lib, &c, &format) {
+                Ok(p) => p,
+                Err(e) => {
+                    log::warn!("cover for {}: {e}", c.id);
+                    dir.join(format!("{format}-cover.jpg"))
+                }
             };
-            let _ = ffmpeg::cover(&video, cover_t, &cover, sw, sh, w, h, cx, cy, cz);
             let srt = dir.join("captions.srt");
             let _ = std::fs::write(&srt, captions::srt(&t.segments, start, end));
             let _ = std::fs::write(dir.join("caption.txt"), format!("{}\n\n{}\n{}", c.title, c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")));

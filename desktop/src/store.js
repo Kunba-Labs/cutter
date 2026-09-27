@@ -101,3 +101,16 @@ export const STAGES = { added: ["muted", "Added"], downloading: ["pink", "Downlo
 export const LANGS = [["auto", "Auto-detect"], ["nl", "Dutch"], ["en", "English"], ["ur", "Urdu"], ["ar", "Arabic"], ["tr", "Turkish"], ["fr", "French"], ["de", "German"], ["id", "Indonesian"], ["ms", "Malay"], ["bn", "Bengali"], ["hi", "Hindi"], ["fa", "Persian"], ["so", "Somali"]];
 export const CATS = ["fact", "statement", "hook", "story", "dua", "reminder", "qa"];
 export const FORMATS = [["shorts", "Shorts"], ["reels", "Reels"], ["tiktok", "TikTok"], ["feed", "Feed 4:5"], ["landscape", "16:9"]];
+
+/* Preview playback speed, shared by the Reels and Transcript players. */
+let speed = 1;
+try { speed = Number(localStorage.getItem("cuttar.speed")) || 1; } catch {}
+const speedListeners = new Set();
+export function useSpeed() {
+  return useSyncExternalStore((l) => (speedListeners.add(l), () => speedListeners.delete(l)), () => speed, () => speed);
+}
+export function setSpeed(v) {
+  speed = v;
+  try { localStorage.setItem("cuttar.speed", String(v)); } catch {}
+  speedListeners.forEach((l) => l());
+}

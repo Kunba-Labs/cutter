@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useStore, act, tryAct, fileUrl, fmt, CATS, FORMATS } from "../store.js";
-import { Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES } from "../ui.jsx";
+import { useStore, act, tryAct, fileUrl, fmt, CATS, FORMATS, useSpeed, setSpeed } from "../store.js";
+import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES } from "../ui.jsx";
 import { captionCss, hookCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
@@ -24,6 +24,8 @@ export default function Reels({ nav, go }) {
   const [applyKeys, setApplyKeys] = useState(["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
   const video = useRef(null);
+  const speed = useSpeed();
+  useEffect(() => { if (video.current) video.current.playbackRate = speed; }, [speed]);
 
   useEffect(() => { if (sourceId) act("source", { id: sourceId }).then(setDetail).catch(() => setDetail(null)); }, [sourceId, x?.updatedAt]);
   useEffect(() => { if (c && video.current) { video.current.currentTime = c.start; } }, [c?.id]);

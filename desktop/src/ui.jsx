@@ -106,3 +106,11 @@ export const CAT_NAMES = { fact: "Fact", statement: "Statement", hook: "Hook", s
 export const Cat = ({ id, size = 14, style }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, ...style }} aria-label={CAT_NAMES[id] || id}><title>{CAT_NAMES[id] || id}</title>{catPaths[id] || catPaths.statement}</svg>
 );
+
+/* Playback speed for previews: a small segmented control, remembered per session. */
+export const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+export const Speed = ({ value, onChange }) => (
+  <div className="seg" title="Playback speed">
+    {SPEEDS.map((v) => <button key={v} type="button" className={v === value ? "on" : ""} onClick={() => onChange(v)}>{v}×</button>)}
+  </div>
+);

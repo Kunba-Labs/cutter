@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useStore, act, tryAct, fileUrl, fmt, fmtLong, LANGS } from "../store.js";
-import { Panel, Btn, I } from "../ui.jsx";
+import { useStore, act, tryAct, fileUrl, fmt, fmtLong, LANGS, useSpeed, setSpeed } from "../store.js";
+import { Speed, Panel, Btn, I } from "../ui.jsx";
 
 export default function Transcript({ nav, go }) {
   const s = useStore();
@@ -9,6 +9,8 @@ export default function Transcript({ nav, go }) {
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const video = useRef(null);
+  const speed = useSpeed();
+  useEffect(() => { if (video.current) video.current.playbackRate = speed; }, [speed]);
   const cands = s.candidates.filter((c) => c.sourceId === nav.sourceId);
 
   useEffect(() => { if (nav.sourceId) act("source", { id: nav.sourceId }).then(setDetail).catch(() => setDetail(null)); }, [nav.sourceId, x?.stage, x?.updatedAt]);

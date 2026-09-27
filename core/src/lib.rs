@@ -413,6 +413,40 @@ impl Library {
                 self.changed();
                 json!(t.segments[idx])
             }
+            "edit_word" => {
+                // One word of a line, timing untouched. `word` is its index within the line.
+                let id = id()?;
+                let idx = a["index"].as_u64().ok_or("index required")? as usize;
+                let wi = a["word"].as_u64().ok_or("word required")? as usize;
+                let text = s("text").ok_or("text required")?.trim().to_string();
+                if text.is_empty() || text.split_whitespace().count() != 1 {
+                    return Err("one word, please".into());
+                }
+                let mut t: Transcript = self.get("transcripts", &id).ok_or("no transcript")?;
+                let seg = t.segments.get_mut(idx).ok_or("no such line")?;
+                let mut tokens: Vec<String> = seg.text.split_whitespace().map(String::from).collect();
+                if seg.words.is_empty() {
+                    let tok = tokens.get_mut(wi).ok_or("no such word")?;
+                    *tok = text.clone();
+                } else {
+                    let w = seg.words.get_mut(wi).ok_or("no such word")?;
+                    w.w = text.clone();
+                    if tokens.len() == seg.words.len() {
+                        tokens[wi] = text.clone();
+                    } else {
+                        tokens = seg.words.iter().map(|w| w.w.clone()).collect();
+                    }
+                }
+                seg.text = tokens.join(" ");
+                let full: String = t.segments.iter().map(|g| g.text.as_str()).collect::<Vec<_>>().join(" ");
+                self.put("transcripts", &id, &now(), &t);
+                let _ = self.db.lock().fts_put(&id, &full);
+                if let Some(src) = self.get::<Source>("sources", &id) {
+                    let _ = std::fs::write(Path::new(&src.folder).join("transcript.srt"), captions::srt(&t.segments, 0.0, f64::MAX));
+                }
+                self.changed();
+                json!(t.segments[idx])
+            }
             "polish" => {
                 let id = id()?;
                 let src: Source = self.get("sources", &id).ok_or("no such source")?;

@@ -37,7 +37,8 @@ export const fileUrl = (p, v) => {
   if (!p) return p;
   const q = v ? `v=${encodeURIComponent(v)}` : "";
   if (http) return `${http.base}/file?token=${http.token}&path=${encodeURIComponent(p)}${q ? `&${q}` : ""}`;
-  const u = convertFileSrc ? convertFileSrc(p) : p;
+  // media:// is Cuttar's own file server (src-tauri/src/main.rs): larger range pieces than asset://.
+  const u = convertFileSrc ? convertFileSrc(p, "media") : p;
   return q ? `${u}?${q}` : u;
 };
 

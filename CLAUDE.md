@@ -86,6 +86,8 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 
 ## Gotchas
 
+- The webview loads local files through `media://` (our handler in `src-tauri/src/main.rs`), not `asset://`: Tauri's asset protocol caps a range at 1 MB and WebKit then can't read a movie index larger than that (long 60 fps lectures: black picture, audio plays). `fileUrl` in store.js picks the scheme.
+
 - Never pipe `bin/app-build` into `tail`: the pipe hides its exit code and a missing literal (stale dist) slips through. Redirect to a file and check `$?`.
 
 - A new document table must be listed in `db::TABLES`, or `put` fails quietly and `all` is empty.

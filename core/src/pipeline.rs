@@ -195,7 +195,14 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
             // A local file: link it into the folder so every source looks the same.
             let video = dir.join("source.mp4");
             if !video.exists() {
-                std::fs::hard_link(&p, &video).or_else(|_| std::fs::copy(&p, &video).map(|_| ())).map_err(|e| format!("copy: {e}"))?;
+                // A real MP4 with the index first; linking the original as a fallback.
+                let jid = job.id.clone();
+                let dur = ffmpeg::probe(Path::new(&p)).map(|x| x.duration).unwrap_or(0.0);
+                if let Err(e) = ffmpeg::faststart(Path::new(&p), &video, dur, |pr, m| lib.job_progress(&jid, pr, &format!("preparing {m}"))) {
+                    log::warn!("remux of {p} failed ({e}); linking the original");
+                    let _ = std::fs::remove_file(&video);
+                    std::fs::hard_link(&p, &video).or_else(|_| std::fs::copy(&p, &video).map(|_| ())).map_err(|e| format!("copy: {e}"))?;
+                }
             }
             let thumb = dir.join("thumb.jpg");
             let _ = ffmpeg::thumbnail(&video, &thumb);

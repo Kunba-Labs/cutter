@@ -538,8 +538,8 @@ impl Library {
                 // The best stream again; transcript, reels and edits stay.
                 let id = id()?;
                 let src: Source = self.get("sources", &id).ok_or("no such source")?;
-                if src.url.is_none() {
-                    return Err("only for YouTube sources".into());
+                if src.url.is_none() && src.path.is_none() {
+                    return Err("nothing to fetch again".into());
                 }
                 json!(self.enqueue("download", &id, &src.title, json!({ "keep": true })))
             }

@@ -175,6 +175,14 @@ fn run_with_progress(cmd: &mut Command, total: f64, out: &Path, mut on_progress:
     }
 }
 
+/// The same streams in a real MP4 with the index up front (no re-encode). Camera and editor
+/// .mov files keep the index after the media; the in-app player then stalls on a black frame.
+pub fn faststart(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64, &str)) -> Result<(), String> {
+    let mut cmd = Command::new(crate::tools::ffmpeg_bin());
+    cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]).arg("-i").arg(src).args(["-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(out);
+    run_with_progress(&mut cmd, duration.max(0.1), out, on_progress)
+}
+
 /// A 1080p H.264/AAC copy of a source the in-app player cannot play (VP9, AV1, 4K, Opus).
 /// Renders still read the original.
 pub fn proxy(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64, &str)) -> Result<(), String> {

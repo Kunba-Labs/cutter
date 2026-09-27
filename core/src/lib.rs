@@ -212,7 +212,9 @@ impl Library {
         let hours = s.cadence["youtube"].as_array().map(|h| h.iter().filter_map(|v| v.as_i64()).collect()).unwrap_or_default();
         let mut t = Target { id: new_id("t"), kind: "youtube".into(), name: if s.youtube.channel_title.is_empty() { "YouTube".into() } else { s.youtube.channel_title.clone() }, hours, refresh_token: s.youtube.refresh_token.clone(), channel_title: s.youtube.channel_title.clone(), privacy: s.youtube.privacy.clone(), category_id: s.youtube.category_id.clone(), title_suffix: s.youtube.title_suffix.clone(), description_footer: s.youtube.description_footer.clone(), ..Default::default() };
         self.save_target(&mut t);
-        for mut p in self.all::<Post>("posts").into_iter().filter(|p| p.channel == "youtube" && p.target_id.is_empty()) {
+        // Posts without a target, or pointing at one that no longer exists, go to this one.
+        let known: Vec<String> = self.all::<Target>("targets").into_iter().map(|t| t.id).collect();
+        for mut p in self.all::<Post>("posts").into_iter().filter(|p| p.channel == "youtube" && (p.target_id.is_empty() || !known.contains(&p.target_id))) {
             p.target_id = t.id.clone();
             self.save_post(&mut p);
         }

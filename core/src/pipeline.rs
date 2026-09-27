@@ -74,10 +74,27 @@ fn source(lib: &Library, id: &str) -> Result<Source, String> {
 fn pick_cover(lib: &Library, job: &Job, s: &Settings, c: &Candidate, video: &Path, tmp: &Path, g: (i64, i64, i64, i64, f64, f64, f64)) -> f64 {
     let fallback = c.start + 1.0;
     lib.job_progress(&job.id, 0.97, "choosing the cover");
+    // An older render job of the same reel may be asking already: wait for its answer instead of asking twice.
+    let older = lib.all::<Job>("jobs").into_iter().any(|j| j.kind == "render" && j.ref_id == c.id && j.status == "running" && j.created_at < job.created_at);
+    if older {
+        for _ in 0..90 {
+            std::thread::sleep(Duration::from_secs(2));
+            if let Some(t) = lib.get::<Candidate>("candidates", &c.id).and_then(|cc| cc.cover_t) {
+                return t;
+            }
+            if !lib.all::<Job>("jobs").into_iter().any(|j| j.kind == "render" && j.ref_id == c.id && j.status == "running" && j.created_at < job.created_at) {
+                break;
+            }
+        }
+    }
     let (sw, sh, w, h, cx, cy, cz) = g;
     let picked = (|| -> Result<f64, String> {
         let (sheet, times) = ffmpeg::cover_sheet(video, c.start, c.end, tmp, sw, sh, w, h, cx, cy, cz)?;
         let text = brain::ask(s, &brain::cover_prompt(&sheet, &c.title), Duration::from_secs(180), |pid| lib.register_child(&job.id, pid))?;
+        // The sheet stays beside the reel so the choice can be checked.
+        if let Some(parent) = tmp.parent() {
+            let _ = std::fs::rename(&sheet, parent.join("cover-sheet.jpg"));
+        }
         let n = brain::parse_frame(&text).ok_or_else(|| format!("no frame in: {}", text.chars().take(120).collect::<String>()))?;
         Ok(times[n - 1])
     })();

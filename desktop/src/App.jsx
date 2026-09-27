@@ -78,7 +78,7 @@ export default function App() {
               {label}
               {id === "inbox" && inboxNew > 0 && <span className="n">{inboxNew}</span>}
               {id === "reels" && review > 0 && <span className="n">{review}</span>}
-              {id === "queue" && running > 0 && <span className="n mint">{running}</span>}
+              {id === "queue" && running > 0 && <>{s.jobs.some((j) => j.status === "running") && <i className="spin" />}<span className="n mint">{running}</span></>}
             </button>
           ))}
         </div>

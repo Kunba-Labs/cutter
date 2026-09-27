@@ -73,7 +73,9 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   (`captions::cover`). `covers` redoes cover images without re-encoding; `pick_cover` forgets the
   frame and renders the reel again ("New cover" on the Reels screen).
 - **Design language**: panels on #1A1D2A with 26 px header strips, magenta #F52ACB the only
-  action colour, mint = done, coral = failed. No stat tiles, no caps labels, no pill nav.
+  action colour (primary buttons, active tab). Tiffany #0ABAB5 for selection state: segmented
+  controls, checks, slider thumbs, links, inspector group heads. Mint = done, the trim timeline
+  and the current word; coral = failed. No stat tiles, no caps labels, no pill nav.
 
 ## Gotchas
 

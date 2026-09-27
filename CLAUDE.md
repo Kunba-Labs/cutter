@@ -86,6 +86,8 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 
 ## Gotchas
 
+- Never pipe `bin/app-build` into `tail`: the pipe hides its exit code and a missing literal (stale dist) slips through. Redirect to a file and check `$?`.
+
 - A new document table must be listed in `db::TABLES`, or `put` fails quietly and `all` is empty.
 
 - A GUI app gets launchd's PATH: `tools::inherit_login_path()` runs first in both binaries.

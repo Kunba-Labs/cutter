@@ -484,8 +484,33 @@ impl Library {
                     self.put("renders", &r.id.clone(), &r.created_at.clone(), &r);
                     n += 1;
                 }
+                // Sources too: the facts a download would have stored.
+                let mut sources = 0;
+                for mut src in self.all::<Source>("sources").into_iter().filter(|x| x.video_path.is_some() && (all || s("sourceId").as_deref() == Some(x.id.as_str()))) {
+                    if let Ok(pr) = ffmpeg::probe(Path::new(src.video_path.as_ref().unwrap())) {
+                        src.meta["width"] = json!(pr.width);
+                        src.meta["height"] = json!(pr.height);
+                        src.meta["fps"] = json!(pr.fps);
+                        src.meta["vcodec"] = json!(pr.vcodec);
+                        src.meta["kbps"] = json!(pr.kbps);
+                        src.meta["hasAudio"] = json!(pr.has_audio);
+                        let mut issues: Vec<String> = Vec::new();
+                        if pr.width < 640 || pr.height < 360 {
+                            issues.push(format!("only {}×{}", pr.width, pr.height));
+                        }
+                        if pr.duration < 1.0 {
+                            issues.push("no length".into());
+                        }
+                        if !pr.has_audio {
+                            issues.push("no audio".into());
+                        }
+                        src.meta["issues"] = json!(issues);
+                        self.save_source(&mut src);
+                        sources += 1;
+                    }
+                }
                 self.changed();
-                json!({ "checked": n, "flagged": flagged })
+                json!({ "checked": n, "flagged": flagged, "sources": sources })
             }
             "covers" => {
                 // Cover images again for every finished render of these reels (title or frame changed). No re-encode.

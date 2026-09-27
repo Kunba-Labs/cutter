@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore, tryAct, FORMATS } from "../store.js";
-import { Panel, Btn, Check, Text, Seg, Dot, Brand } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Seg, Dot, Brand, Confirm, I } from "../ui.jsx";
 
 const SECTIONS = [["general", "General"], ["engines", "Engines"], ["channels", "Channels"], ["captions", "Captions"], ["posters", "Posters"], ["mcp", "Claude and terminal"]];
 
@@ -9,6 +9,8 @@ export default function Settings({ go }) {
   const st = s.settings;
   const [sec, setSec] = useState("channels");
   const [busy, setBusy] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [askDisconnect, setAskDisconnect] = useState(false);
   const patch = (p, msg) => tryAct("settings", { patch: p }, msg);
   const yt = st.youtube || {};
   const cs = st.captionStyle || {};
@@ -63,9 +65,15 @@ export default function Settings({ go }) {
         {sec === "channels" && (
           <>
             <Panel title={<span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id="youtube" />YouTube</span>} sub="Data API v3 · OAuth desktop app · Shorts upload with publishAt" right={<span style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 500 }}><Dot c={yt.refreshToken ? "mint" : "muted"} />{yt.refreshToken ? `connected · ${yt.channelTitle}` : "not connected"}</span>}>
-              <Row label="OAuth client id"><Text style={W} value={yt.clientId} onCommit={(v) => patch({ youtube: { clientId: v } })} placeholder="…apps.googleusercontent.com" /></Row>
-              <Row label="OAuth client secret"><Text style={W} type="password" value={yt.clientSecret} onCommit={(v) => patch({ youtube: { clientSecret: v } })} /></Row>
-              <Row label="">{yt.refreshToken ? <Btn onClick={() => tryAct("youtube_disconnect", {}, "Disconnected")}>Disconnect</Btn> : <Btn primary disabled={!yt.clientId || !yt.clientSecret || busy} onClick={async () => { setBusy(true); await tryAct("youtube_connect", {}, "YouTube connected"); setBusy(false); }}>{busy ? "Waiting for Google…" : "Connect Google account"}</Btn>}<span className="hint">Google Cloud console: enable the YouTube Data API, then make a Desktop OAuth client.</span></Row>
+              <Row label="Account">{yt.refreshToken
+                ? <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: "var(--mint)", display: "inline-flex" }}>{I.check}</span><span>Connected as <b>{yt.channelTitle || "your channel"}</b></span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); setAskDisconnect(true); }}>disconnect</a></span>
+                : <><Btn primary disabled={!yt.clientId || !yt.clientSecret || busy} onClick={async () => { setBusy(true); await tryAct("youtube_connect", {}, "YouTube connected"); setBusy(false); }}>{busy ? "Waiting for Google…" : "Connect Google account"}</Btn><span className="hint">Your browser opens. Sign in with the account that owns the channel.</span></>}</Row>
+              {askDisconnect && <Confirm text="Disconnect YouTube? Scheduled posts wait until you connect again." yes="Disconnect" no="Keep" onYes={() => { setAskDisconnect(false); tryAct("youtube_disconnect", {}, "Disconnected"); }} onNo={() => setAskDisconnect(false)} />}
+              <Row label=""><a href="#" className="muted" onClick={(e) => { e.preventDefault(); setAdvanced(!advanced); }}>{advanced ? "Hide advanced" : "Advanced"}</a></Row>
+              {advanced && <>
+                <Row label="OAuth client id"><Text style={W} value={yt.clientId} onCommit={(v) => patch({ youtube: { clientId: v } })} placeholder="…apps.googleusercontent.com" /><span className="hint">Built in. Change only for your own Google Cloud project.</span></Row>
+                <Row label="OAuth client secret"><Text style={W} type="password" value={yt.clientSecret} onCommit={(v) => patch({ youtube: { clientSecret: v } })} /></Row>
+              </>}
               <Row label="Default privacy"><Seg value={yt.privacy || "public"} onChange={(v) => patch({ youtube: { privacy: v } })} options={[["public", "Public"], ["unlisted", "Unlisted"], ["private", "Private"]]} /><span className="hint">Scheduled uploads stay private until their time.</span></Row>
               <Row label="Category id"><Text style={{ width: 70 }} value={yt.categoryId} onCommit={(v) => patch({ youtube: { categoryId: v } })} /><span className="hint">27 = Education, 29 = Nonprofits</span></Row>
               <Row label="Title suffix"><Text style={W} value={yt.titleSuffix} onCommit={(v) => patch({ youtube: { titleSuffix: v } })} /></Row>

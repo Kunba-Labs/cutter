@@ -19,6 +19,8 @@ pub struct CaptionSpec<'a> {
     pub watermark: &'a str,
     /// Show the translated lines instead of the spoken words (one language, never both).
     pub use_translation: bool,
+    /// Anchor the hook at the bottom (covers: the face fills the middle, the chest is free).
+    pub hook_bottom: bool,
 }
 
 fn ass_color(hex: &str) -> String {
@@ -51,7 +53,7 @@ pub fn cover(style: &CaptionStyle, width: i64, height: i64, extra_bottom: f64, l
     st.hook_seconds = 60.0;
     // A thumbnail is read at a fraction of the size, so the title grows by a quarter.
     st.hook_size = (st.hook_size.max(12) as f64 * 1.25) as i64;
-    build(&CaptionSpec { segments: &[], translation: &[], clip_start: 0.0, clip_end: 60.0, width, height, extra_bottom, style: &st, language, hook: title, watermark, use_translation: false })
+    build(&CaptionSpec { segments: &[], translation: &[], clip_start: 0.0, clip_end: 60.0, width, height, extra_bottom, style: &st, language, hook: title, watermark, use_translation: false, hook_bottom: true })
 }
 
 pub fn build(c: &CaptionSpec) -> String {
@@ -72,7 +74,7 @@ pub fn build(c: &CaptionSpec) -> String {
         "[Script Info]\nScriptType: v4.00+\nPlayResX: {w}\nPlayResY: {h}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
 Style: Main,{font},{size},{primary},{white},&H00000000,{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_l},40,{bottom},1\n\
 Style: Trans,{font},{tsize},&H00F0F0F0,{white},&H00000000,&H99000000,0,0,0,0,100,100,0,0,3,0,0,2,60,60,{tbottom},1\n\
-Style: Hook,{hfont},{hsize},{hcolor},{white},&H00000000,{hback},{hbold},{hitalic},0,0,100,100,0,0,{hborder},{houtline},0,8,60,60,{htop},1\n\
+Style: Hook,{hfont},{hsize},{hcolor},{white},&H00000000,{hback},{hbold},{hitalic},0,0,100,100,0,0,{hborder},{houtline},0,{halign},60,60,{htop},1\n\
 Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100,100,0,0,3,0,0,1,40,40,60,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
         w = c.width,
         h = c.height,
@@ -86,7 +88,8 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100
         hitalic = if st.hook_italic { -1 } else { 0 },
         hborder = if st.hook_boxed { 3 } else { 1 },
         houtline = if st.hook_boxed { 0 } else { 3 },
-        htop = (c.height as f64 * st.hook_pct as f64 / 100.0) as i64,
+        halign = if c.hook_bottom { 2 } else { 8 },
+        htop = if c.hook_bottom { (c.height as f64 * 0.07) as i64 } else { (c.height as f64 * st.hook_pct as f64 / 100.0) as i64 },
         msize = (size as f64 * 0.45) as i64,
     );
     let dur = c.clip_end - c.clip_start;
@@ -175,7 +178,7 @@ mod tests {
     fn karaoke_lines() {
         let segs = vec![Segment { start: 10.0, end: 12.0, text: "sabr is niet wachten".into(), words: vec![Word { w: "sabr".into(), s: 10.0, e: 10.4 }, Word { w: "is".into(), s: 10.5, e: 10.7 }, Word { w: "niet".into(), s: 10.8, e: 11.1 }, Word { w: "wachten".into(), s: 11.2, e: 12.0 }] }];
         let st = CaptionStyle::default();
-        let ass = build(&CaptionSpec { segments: &segs, translation: &[], clip_start: 10.0, clip_end: 12.0, width: 1080, height: 1920, extra_bottom: 0.0, style: &st, language: "nl", hook: "Sabr ≠ wachten", watermark: "Al-Qadri", use_translation: false });
+        let ass = build(&CaptionSpec { segments: &segs, translation: &[], clip_start: 10.0, clip_end: 12.0, width: 1080, height: 1920, extra_bottom: 0.0, style: &st, language: "nl", hook: "Sabr ≠ wachten", watermark: "Al-Qadri", use_translation: false, hook_bottom: false });
         assert_eq!(ass.matches("Style: Main").count(), 1);
         assert_eq!(ass.matches("Dialogue: 0,").count(), 4);
         assert!(ass.contains("&H00A3F23E")); // #3EF2A3 as BGR

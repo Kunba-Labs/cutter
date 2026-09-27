@@ -390,7 +390,7 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     // The language decides font and size (RTL scripts), so it must match what is actually drawn.
     let use_translation = !s.translate_to.is_empty() && s.translate_to != t.language && c.translation.iter().any(|l| !l.text.trim().is_empty());
     let caption_language = if use_translation { s.translate_to.as_str() } else { t.language.as_str() };
-    std::fs::write(&ass, captions::build(&captions::CaptionSpec { segments: &t.segments, translation: &c.translation, clip_start: start, clip_end: end, width: w, height: h, extra_bottom: extra, style: &style, language: caption_language, hook: &c.hook, watermark: &s.channel_name, use_translation })).map_err(|e| e.to_string())?;
+    std::fs::write(&ass, captions::build(&captions::CaptionSpec { segments: &t.segments, translation: &c.translation, clip_start: start, clip_end: end, width: w, height: h, extra_bottom: extra, style: &style, language: caption_language, hook: &c.hook, watermark: &s.channel_name, use_translation, hook_bottom: false })).map_err(|e| e.to_string())?;
     let mut r = Render { id: new_id("r"), candidate_id: c.id.clone(), source_id: src.id.clone(), format: format.clone(), path: out.display().to_string(), status: "rendering".into(), created_at: now(), ..Default::default() };
     lib.put("renders", &r.id, &r.created_at, &r);
     let jid = job.id.clone();

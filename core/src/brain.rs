@@ -84,16 +84,35 @@ pub fn lang_name(code: &str) -> &str {
 }
 
 /// Ask the configured brain; returns the model's raw text.
-/// Asks for the best cover frame on a numbered 3×3 contact sheet. Both brains read a file path in the prompt.
-pub fn cover_prompt(sheet: &std::path::Path, title: &str) -> String {
-    format!(
+/// Asks for the best cover frame on a numbered 3×3 contact sheet, and for the cover line when the
+/// reel has none yet. Both brains read a file path in the prompt.
+pub fn cover_prompt(sheet: &std::path::Path, title: &str, spoken: &str, language: &str, need_title: bool) -> String {
+    let mut p = format!(
         "Look at the image file {} (read it with your Read tool). It is a 3 by 3 contact sheet of nine numbered frames \
 from a short vertical clip of an Islamic lecture titled \"{title}\". Pick the one frame that works best as the cover \
 image of the clip on Instagram, TikTok and YouTube Shorts: the speaker's face sharp and clearly visible, eyes open, \
-no mid-blink or mid-word grimace, a natural or expressive look, well framed, no motion blur, no slide or transition. \
-Answer with JSON only: {{\"frame\": <1-9>, \"why\": \"<ten words>\"}}",
+no mid-blink or mid-word grimace, a natural or expressive look, well framed, no motion blur, no slide or transition.",
         sheet.display()
-    )
+    );
+    if need_title {
+        p.push_str(&format!(
+            "\n\nAlso write the cover line: the text on the thumbnail. It tells the story of the reel in 8 to 14 words, \
+in the spoken language ({language}): what the viewer will learn or feel, concrete, no clickbait, no emoji, may be a \
+question or a claim, may span two lines. It is longer and more specific than the title.\n\nSpoken in the clip:\n{spoken}\n\n\
+Answer with JSON only: {{\"frame\": <1-9>, \"coverTitle\": \"<the line>\", \"why\": \"<ten words>\"}}"
+        ));
+    } else {
+        p.push_str("\n\nAnswer with JSON only: {\"frame\": <1-9>, \"why\": \"<ten words>\"}");
+    }
+    p
+}
+
+/// The cover line in the brain's answer, trimmed and capped.
+pub fn parse_cover_title(text: &str) -> Option<String> {
+    let (start, end) = (text.find('{')?, text.rfind('}')?);
+    let v: Value = serde_json::from_str(&text[start..=end]).ok()?;
+    let t = v["coverTitle"].as_str()?.trim().trim_matches('"').to_string();
+    (!t.is_empty()).then(|| t.chars().take(120).collect())
 }
 
 /// The 1-based frame number in the brain's answer.

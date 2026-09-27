@@ -210,6 +210,7 @@ export default function Reels({ nav, go }) {
             <div className="insp-head">Text</div>
             <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
             <Field label={`Title on the video, first ${(hookTpl.hookSeconds || 2.5)} s`}><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
+            <Field label="Cover line"><Text area rows={2} value={c.coverTitle || ""} onCommit={async (v) => { await patch({ coverTitle: v }); tryAct("covers", { candidateIds: [c.id] }); }} placeholder="Written with the cover pick. Tells the reel's story in one or two lines." /></Field>
           </div>
           <div className="insp-group">
             <div className="insp-head">Look<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></div>

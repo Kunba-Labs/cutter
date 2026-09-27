@@ -127,6 +127,10 @@ pub struct Candidate {
     /// Source time of the frame the brain picked as the cover. Set on the first render, reused after.
     #[serde(default)]
     pub cover_t: Option<f64>,
+    /// The longer line on the cover image that tells the reel's story. Written by the brain with the
+    /// frame pick when empty; the on-video title (`hook`) stands in when it is.
+    #[serde(default)]
+    pub cover_title: String,
     /// Override of settings.formats, or empty for the default.
     pub formats: Vec<String>,
     pub position: i64,

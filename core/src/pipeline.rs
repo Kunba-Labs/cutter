@@ -88,21 +88,28 @@ fn pick_cover(lib: &Library, job: &Job, s: &Settings, c: &Candidate, video: &Pat
         }
     }
     let (sw, sh, w, h, cx, cy, cz) = g;
-    let picked = (|| -> Result<f64, String> {
+    let need_title = c.cover_title.trim().is_empty();
+    let picked = (|| -> Result<(f64, Option<String>), String> {
         let (sheet, times) = ffmpeg::cover_sheet(video, c.start, c.end, tmp, sw, sh, w, h, cx, cy, cz)?;
-        let text = brain::ask(s, &brain::cover_prompt(&sheet, &c.title), Duration::from_secs(180), |pid| lib.register_child(&job.id, pid))?;
+        let t: Option<Transcript> = lib.get("transcripts", &c.source_id);
+        let spoken = t.as_ref().map(|t| t.segments.iter().filter(|g| g.end > c.start && g.start < c.end).map(|g| g.text.as_str()).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+        let language = t.as_ref().map(|t| t.language.clone()).unwrap_or_default();
+        let text = brain::ask(s, &brain::cover_prompt(&sheet, &c.title, &spoken, &language, need_title), Duration::from_secs(180), |pid| lib.register_child(&job.id, pid))?;
         // The sheet stays beside the reel so the choice can be checked.
         if let Some(parent) = tmp.parent() {
             let _ = std::fs::rename(&sheet, parent.join("cover-sheet.jpg"));
         }
         let n = brain::parse_frame(&text).ok_or_else(|| format!("no frame in: {}", text.chars().take(120).collect::<String>()))?;
-        Ok(times[n - 1])
+        Ok((times[n - 1], if need_title { brain::parse_cover_title(&text) } else { None }))
     })();
     let _ = std::fs::remove_dir_all(tmp);
     match picked {
-        Ok(t) => {
+        Ok((t, line)) => {
             if let Some(mut cc) = lib.get::<Candidate>("candidates", &c.id) {
                 cc.cover_t = Some(t);
+                if let (Some(l), true) = (line, cc.cover_title.trim().is_empty()) {
+                    cc.cover_title = l;
+                }
                 lib.save_candidate(&mut cc);
             }
             t
@@ -149,7 +156,7 @@ pub fn make_cover(lib: &Library, c: &Candidate, format: &str) -> Result<PathBuf,
     let dir = PathBuf::from(&src.folder).join(slug(&c.title));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let language = lib.get::<Transcript>("transcripts", &src.id).map(|t| t.language).unwrap_or_default();
-    let title = if c.hook.trim().is_empty() { c.title.as_str() } else { c.hook.as_str() };
+    let title = [c.cover_title.as_str(), c.hook.as_str(), c.title.as_str()].into_iter().find(|t| !t.trim().is_empty()).unwrap_or("");
     let ass = dir.join(format!("{format}-cover.ass"));
     std::fs::write(&ass, captions::cover(&reel_style(&s, c), w, h, extra, &language, title, &s.channel_name)).map_err(|e| e.to_string())?;
     let out = dir.join(format!("{format}-cover.jpg"));
@@ -400,7 +407,10 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
             let (cx, cy, cz) = (c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5), c.crop["z"].as_f64().unwrap_or(1.0));
             let mut c = c.clone();
             if c.cover_t.is_none() {
-                c.cover_t = Some(pick_cover(lib, job, &s, &c, &video, &dir.join(format!(".cover-{format}")), (sw, sh, w, h, cx, cy, cz)));
+                let t = pick_cover(lib, job, &s, &c, &video, &dir.join(format!(".cover-{format}")), (sw, sh, w, h, cx, cy, cz));
+                // The pick may have written the cover line too.
+                c = lib.get::<Candidate>("candidates", &c.id).unwrap_or(c);
+                c.cover_t = Some(t);
             }
             let cover = match make_cover(lib, &c, &format) {
                 Ok(p) => p,

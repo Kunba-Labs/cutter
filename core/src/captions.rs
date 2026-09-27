@@ -60,7 +60,10 @@ pub fn build(c: &CaptionSpec) -> String {
     let st = c.style;
     let rtl = is_rtl(c.language);
     let font = if rtl { "Geeza Pro" } else { st.font.as_str() };
-    let size = if rtl { (st.size as f64 * 1.15) as i64 } else { st.size };
+    // libass sizes a font by its line height, CSS by its em: Helvetica Bold at 100 gives 61 px capitals
+    // here and 72 px in the preview. EM brings the render to what the preview shows.
+    const EM: f64 = 1.18;
+    let size = ((if rtl { st.size as f64 * 1.15 } else { st.size as f64 }) * EM).round() as i64;
     let bottom = (c.height as f64 * (st.position_pct as f64 / 100.0 + c.extra_bottom)) as i64;
     let white = "&H00FFFFFF";
     let hl = ass_color(&st.highlight);
@@ -84,14 +87,14 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H66000000,&H80000000,-1,0,0,0,100
         tsize = (size as f64 * 0.55) as i64,
         tbottom = bottom - (size as f64 * 1.9) as i64,
         hfont = if st.hook_font.is_empty() { font } else { st.hook_font.as_str() },
-        hsize = st.hook_size.max(12),
+        hsize = (st.hook_size.max(12) as f64 * EM).round() as i64,
         hcolor = ass_color(&st.hook_color),
         hback = "&H80000000",
         hbox = if st.hook_boxed { format!("&H00{}", &ass_color(&st.hook_box_color)[4..]) } else { "&H00000000".to_string() },
         hbold = if st.hook_bold { -1 } else { 0 },
         hitalic = if st.hook_italic { -1 } else { 0 },
         hborder = if st.hook_boxed { 3 } else { 1 },
-        houtline = if st.hook_boxed { (st.hook_size.max(12) as f64 * 0.3) as i64 } else { 3 },
+        houtline = if st.hook_boxed { (st.hook_size.max(12) as f64 * EM * 0.3) as i64 } else { 3 },
         halign = if c.hook_bottom { 2 } else { 8 },
         htop = if c.hook_bottom { (c.height as f64 * 0.07) as i64 } else { (c.height as f64 * st.hook_pct as f64 / 100.0) as i64 },
         msize = (size as f64 * 0.45) as i64,

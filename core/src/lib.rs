@@ -55,6 +55,7 @@ pub struct Library {
     active: Mutex<Vec<String>>,
     /// Set by `shutdown`: no job is claimed any more; the process exits once the active ones finish.
     draining: std::sync::atomic::AtomicBool,
+    paused: std::sync::atomic::AtomicBool,
 }
 
 impl Library {
@@ -75,6 +76,7 @@ impl Library {
             children: Mutex::new(HashMap::new()),
             active: Mutex::new(Vec::new()),
             draining: std::sync::atomic::AtomicBool::new(false),
+            paused: std::sync::atomic::AtomicBool::new(false),
         });
         std::fs::create_dir_all(lib.out_dir()).map_err(|e| e.to_string())?;
         posters::qr_script(data_dir);
@@ -98,6 +100,7 @@ impl Library {
         let s = lib.clone();
         std::thread::Builder::new().name("cuttar-scheduler".into()).spawn(move || pipeline::scheduler(s)).map_err(|e| e.to_string())?;
         lib.migrate_targets();
+        lib.paused.store(lib.settings().queue_paused, std::sync::atomic::Ordering::SeqCst);
         Ok(lib)
     }
 
@@ -251,7 +254,7 @@ impl Library {
     /// The oldest queued job this worker may take: one transcript at a time
     /// (the GPU), everything else in parallel. ponytail: a single lock, a scan.
     pub fn claim_job(&self) -> Option<Job> {
-        if self.draining.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.draining.load(std::sync::atomic::Ordering::SeqCst) || self.paused.load(std::sync::atomic::Ordering::SeqCst) {
             return None;
         }
         let db = self.db.lock();
@@ -672,6 +675,8 @@ impl Library {
                             "style" => c.style = from.style.clone(),
                             "hookStyle" => c.hook_style = from.hook_style.clone(),
                             "captionPct" => c.caption_pct = from.caption_pct,
+                            "captionsOn" => c.captions_on = from.captions_on,
+                            "titleOn" => c.title_on = from.title_on,
                             "crop" => c.crop = from.crop.clone(),
                             "formats" => c.formats = from.formats.clone(),
                             _ => {}
@@ -758,6 +763,15 @@ impl Library {
                 let _ = self.db.lock().delete("jobs", &id);
                 self.changed();
                 json!(true)
+            }
+            "pause_queue" => {
+                // paused = true: no new jobs start (running ones finish); false: carry on. Survives a restart.
+                let p = a["paused"].as_bool().unwrap_or(true);
+                self.paused.store(p, std::sync::atomic::Ordering::SeqCst);
+                let mut st = self.settings();
+                st.queue_paused = p;
+                self.save_settings(&st);
+                json!(p)
             }
             "cancel_jobs" => {
                 // Stop everything queued or running (optionally one kind, e.g. render), to change settings and queue again.

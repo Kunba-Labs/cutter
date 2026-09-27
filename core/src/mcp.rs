@@ -63,6 +63,7 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("update_target", "Change a target: patch with name, enabled, hours, format, autoSchedule, privacy, path…", r#"{"id":{"type":"string"},"patch":{"type":"object"}}"#, "id,patch", "update_target"),
     ("remove_target", "Remove a target.", r#"{"id":{"type":"string"}}"#, "id", "remove_target"),
     ("target_connect", "Connect a YouTube target: the browser opens for Google's consent.", r#"{"id":{"type":"string"}}"#, "id", "target_connect"),
+    ("pause_queue", "Pause (paused=true) or resume (false) the queue. Running jobs finish; nothing new starts.", r#"{"paused":{"type":"boolean"}}"#, "", "pause_queue"),
     ("cancel_jobs", "Stop every queued or running job, optionally of one kind (render, publish…).", r#"{"kind":{"type":"string"}}"#, "", "cancel_jobs"),
     ("cancel_job", "Cancel a queued or running job.", r#"{"id":{"type":"string"}}"#, "id", "cancel_job"),
     ("retry_job", "Queue a failed job again.", r#"{"id":{"type":"string"}}"#, "id", "retry_job"),

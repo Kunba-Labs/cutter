@@ -124,6 +124,12 @@ pub struct Candidate {
     pub hook_style: Option<String>,
     /// Caption distance from the bottom (% of height) for this reel, else the template's.
     pub caption_pct: Option<i64>,
+    /// false: no captions burned in (None = on).
+    #[serde(default)]
+    pub captions_on: Option<bool>,
+    /// false: no title on the video (None = on).
+    #[serde(default)]
+    pub title_on: Option<bool>,
     /// Source time of the frame the brain picked as the cover. Set on the first render, reused after.
     #[serde(default)]
     pub cover_t: Option<f64>,
@@ -404,6 +410,8 @@ pub struct Settings {
     pub auto_detect: bool,
     /// Claude fixes clear transcript errors (word for word) before the reel search.
     pub polish_captions: bool,
+    /// Workers take no new jobs while set; running ones finish.
+    pub queue_paused: bool,
     pub auto_approve_score: i64,
     pub translate_to: String,
     pub caption_style: CaptionStyle,
@@ -437,6 +445,7 @@ impl Default for Settings {
             min_score: 6,
             auto_detect: true,
             polish_captions: true,
+            queue_paused: false,
             auto_approve_score: 0,
             translate_to: String::new(),
             caption_style: CaptionStyle::default(),

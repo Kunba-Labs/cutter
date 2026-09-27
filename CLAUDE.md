@@ -86,6 +86,11 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 
 ## Gotchas
 
+- libass: BorderStyle 3 (opaque box) is drawn in the OUTLINE colour, padded by the Outline width;
+  BackColour is only the shadow. Outline 0 means no box at all.
+- libass sizes a font by its line height, CSS by its em: captions::build multiplies sizes by
+  EM = 1.18 so a render matches the preview (Helvetica Bold). Other fonts differ a little.
+
 - The webview loads local files through `media://` (our handler in `src-tauri/src/main.rs`), not `asset://`: Tauri's asset protocol caps a range at 1 MB and WebKit then can't read a movie index larger than that (long 60 fps lectures: black picture, audio plays). `fileUrl` in store.js picks the scheme.
 
 - Never pipe `bin/app-build` into `tail`: the pipe hides its exit code and a missing literal (stale dist) slips through. Redirect to a file and check `$?`.

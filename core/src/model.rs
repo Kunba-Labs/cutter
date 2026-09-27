@@ -314,11 +314,16 @@ pub struct YoutubeAuth {
     pub description_footer: String,
 }
 
+/// Cuttar's own OAuth client (Google Cloud project "cuttar", Desktop app, internal to sadiq.nl).
+/// A desktop app is a public client, so the secret ships in the binary like OBS does; Connect is then one click.
+pub const YOUTUBE_CLIENT_ID: &str = "823828128291-aih0lbtrpqvikff1nurpnr51su9fgi6g.apps.googleusercontent.com";
+pub const YOUTUBE_CLIENT_SECRET: &str = "***REMOVED***";
+
 impl Default for YoutubeAuth {
     fn default() -> Self {
         Self {
-            client_id: String::new(),
-            client_secret: String::new(),
+            client_id: YOUTUBE_CLIENT_ID.into(),
+            client_secret: YOUTUBE_CLIENT_SECRET.into(),
             refresh_token: String::new(),
             channel_title: String::new(),
             privacy: "public".into(),

@@ -58,6 +58,10 @@ pub fn connect(auth: &YoutubeAuth) -> Result<YoutubeAuth, String> {
     let mut out = auth.clone();
     out.refresh_token = refresh;
     out.channel_title = channel_title(&access).unwrap_or_default();
+    if out.channel_title.is_empty() {
+        // Google hands out a valid token for any account; only accounts with a channel can upload.
+        return Err("That Google account has no YouTube channel. Connect again and pick the account, or the brand channel, that owns it.".into());
+    }
     Ok(out)
 }
 
@@ -107,7 +111,10 @@ pub fn upload(auth: &YoutubeAuth, u: &Upload, mut on_progress: impl FnMut(f64, &
         .set("X-Upload-Content-Type", "video/mp4")
         .set("X-Upload-Content-Length", &total.to_string())
         .send_json(meta)
-        .map_err(|e| format!("start upload: {e}"))?;
+        .map_err(|e| match e {
+            ureq::Error::Status(401, _) => "YouTube refused the upload: the connected Google account has no channel. Reconnect in Settings with the account that owns it.".to_string(),
+            e => format!("start upload: {e}"),
+        })?;
     let location = resp.header("Location").ok_or("no upload location")?.to_string();
     const CHUNK: usize = 8 * 1024 * 1024;
     let mut at = 0;

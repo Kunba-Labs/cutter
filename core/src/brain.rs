@@ -104,9 +104,16 @@ pub fn parse_frame(text: &str) -> Option<usize> {
     (1..=9).contains(&n).then_some(n)
 }
 
+/// An empty folder the brain runs in: Claude Code scans its cwd on start, and it must find nothing worth a TCC prompt.
+fn scratch() -> std::path::PathBuf {
+    let d = std::env::temp_dir().join("cuttar-brain");
+    let _ = std::fs::create_dir_all(&d);
+    d
+}
+
 pub fn ask(s: &Settings, prompt: &str, timeout: Duration, on_spawn: impl FnOnce(u32)) -> Result<String, String> {
     let child = if s.brain == "ollama" {
-        let mut c = Command::new("ollama").args(["run", &s.ollama_model]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("ollama: {e}"))?;
+        let mut c = Command::new("ollama").args(["run", &s.ollama_model]).current_dir(scratch()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("ollama: {e}"))?;
         let mut stdin = c.stdin.take().unwrap();
         let p = prompt.to_string();
         std::thread::spawn(move || {
@@ -115,7 +122,7 @@ pub fn ask(s: &Settings, prompt: &str, timeout: Duration, on_spawn: impl FnOnce(
         c
     } else {
         // Claude Code, non-interactive. The prompt goes over stdin: argv has a size limit a lecture blows through.
-        let mut c = Command::new(&s.claude_bin).args(["-p", "--output-format", "json", "--dangerously-skip-permissions"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("claude: {e}"))?;
+        let mut c = Command::new(&s.claude_bin).args(["-p", "--output-format", "json", "--dangerously-skip-permissions"]).current_dir(scratch()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("claude: {e}"))?;
         let mut stdin = c.stdin.take().unwrap();
         let p = prompt.to_string();
         std::thread::spawn(move || {

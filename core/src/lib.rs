@@ -62,6 +62,9 @@ impl Library {
     /// the scheduler. `port` is where the MCP/HTTP server listens; None = none.
     pub fn open(data_dir: &Path, port: Option<u16>) -> Result<Arc<Library>, String> {
         std::fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
+        // The app launches with cwd "/". Children (claude, uv, whisper) scan their cwd, which from "/"
+        // reaches Downloads, Photos, Music and network volumes and makes macOS ask for each.
+        let _ = std::env::set_current_dir(data_dir);
         let db = Db::open(&data_dir.join("cuttar.sqlite")).map_err(|e| e.to_string())?;
         let lib = Arc::new(Library {
             db: Mutex::new(db),

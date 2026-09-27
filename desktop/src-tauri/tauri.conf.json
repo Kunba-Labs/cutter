@@ -21,7 +21,7 @@
         "backgroundColor": [26, 29, 42, 255],
         "titleBarStyle": "Overlay",
         "trafficLightPosition": { "x": 14, "y": 22 },
-        "dragDropEnabled": false
+        "dragDropEnabled": true
       }
     ],
     "macOSPrivateApi": true,

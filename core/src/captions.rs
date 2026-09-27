@@ -66,16 +66,19 @@ pub fn build(c: &CaptionSpec) -> String {
     let hl = ass_color(&st.highlight);
     let text = ass_color(&st.text_color);
     let primary = text.as_str();
-    let (outline_w, shadow, border_style, back) = if st.boxed { (0, 0, 3, "&H99000000") } else { (st.outline_px.max(0), if st.outline_px > 0 { 1 } else { 0 }, 1, "&H80000000") };
+    // libass draws BorderStyle 3 (opaque box) in the OUTLINE colour, padded by the outline width;
+    // BackColour is only the shadow. A box needs both set, or nothing shows.
+    let (outline_w, shadow, border_style, back) = if st.boxed { ((size as f64 * 0.22) as i64, 0, 3, "&H80000000") } else { (st.outline_px.max(0), if st.outline_px > 0 { 1 } else { 0 }, 1, "&H80000000") };
+    let main_outline = if st.boxed { "&H66000000" } else { "&H00000000" };
     let align = if st.align == "left" || st.preset == "lower" { 1 } else { 2 };
     let margin_l = if align == 1 { 60 } else { 40 };
     let bold = if st.bold { -1 } else { 0 };
     let mut out = format!(
         "[Script Info]\nScriptType: v4.00+\nPlayResX: {w}\nPlayResY: {h}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
-Style: Main,{font},{size},{primary},{white},&H00000000,{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_l},40,{bottom},1\n\
-Style: Trans,{font},{tsize},&H00F0F0F0,{white},&H00000000,&H99000000,0,0,0,0,100,100,0,0,3,0,0,2,60,60,{tbottom},1\n\
-Style: Hook,{hfont},{hsize},{hcolor},{white},&H00000000,{hback},{hbold},{hitalic},0,0,100,100,0,0,{hborder},{houtline},0,{halign},60,60,{htop},1\n\
-Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100,100,0,0,3,0,0,1,40,40,60,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+Style: Main,{font},{size},{primary},{white},{main_outline},{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_l},40,{bottom},1\n\
+Style: Trans,{font},{tsize},&H00F0F0F0,{white},&H66000000,&H80000000,0,0,0,0,100,100,0,0,3,{tpad},0,2,60,60,{tbottom},1\n\
+Style: Hook,{hfont},{hsize},{hcolor},{white},{hbox},{hback},{hbold},{hitalic},0,0,100,100,0,0,{hborder},{houtline},0,{halign},60,60,{htop},1\n\
+Style: Mark,{font},{msize},&H00FFFFFF,{white},&H66000000,&H80000000,-1,0,0,0,100,100,0,0,3,{mpad},0,1,40,40,60,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
         w = c.width,
         h = c.height,
         tsize = (size as f64 * 0.55) as i64,
@@ -83,14 +86,17 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H00000000,&H66000000,-1,0,0,0,100
         hfont = if st.hook_font.is_empty() { font } else { st.hook_font.as_str() },
         hsize = st.hook_size.max(12),
         hcolor = ass_color(&st.hook_color),
-        hback = if st.hook_boxed { format!("&H33{}", &ass_color(&st.hook_box_color)[4..]) } else { "&H80000000".to_string() },
+        hback = "&H80000000",
+        hbox = if st.hook_boxed { format!("&H00{}", &ass_color(&st.hook_box_color)[4..]) } else { "&H00000000".to_string() },
         hbold = if st.hook_bold { -1 } else { 0 },
         hitalic = if st.hook_italic { -1 } else { 0 },
         hborder = if st.hook_boxed { 3 } else { 1 },
-        houtline = if st.hook_boxed { 0 } else { 3 },
+        houtline = if st.hook_boxed { (st.hook_size.max(12) as f64 * 0.3) as i64 } else { 3 },
         halign = if c.hook_bottom { 2 } else { 8 },
         htop = if c.hook_bottom { (c.height as f64 * 0.07) as i64 } else { (c.height as f64 * st.hook_pct as f64 / 100.0) as i64 },
         msize = (size as f64 * 0.45) as i64,
+        tpad = (size as f64 * 0.55 * 0.25) as i64,
+        mpad = (size as f64 * 0.45 * 0.25) as i64,
     );
     let dur = c.clip_end - c.clip_start;
     let hl_tag = format!("{{\\c{hl}&}}");

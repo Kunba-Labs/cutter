@@ -63,6 +63,7 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("update_target", "Change a target: patch with name, enabled, hours, format, autoSchedule, privacy, path…", r#"{"id":{"type":"string"},"patch":{"type":"object"}}"#, "id,patch", "update_target"),
     ("remove_target", "Remove a target.", r#"{"id":{"type":"string"}}"#, "id", "remove_target"),
     ("target_connect", "Connect a YouTube target: the browser opens for Google's consent.", r#"{"id":{"type":"string"}}"#, "id", "target_connect"),
+    ("cancel_jobs", "Stop every queued or running job, optionally of one kind (render, publish…).", r#"{"kind":{"type":"string"}}"#, "", "cancel_jobs"),
     ("cancel_job", "Cancel a queued or running job.", r#"{"id":{"type":"string"}}"#, "id", "cancel_job"),
     ("retry_job", "Queue a failed job again.", r#"{"id":{"type":"string"}}"#, "id", "retry_job"),
     ("pick_cover", "Choose a reel's cover frame again (sharpness pass + brain) and render its formats again.", r#"{"id":{"type":"string"}}"#, "id", "pick_cover"),

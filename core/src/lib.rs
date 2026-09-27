@@ -130,6 +130,10 @@ impl Library {
                 t.hook_pct = b.hook_pct;
             }
         }
+        // The default names a template: it takes that template's current values, never a stale copy.
+        if let Some(t) = st.caption_templates.iter().find(|t| t.name == st.caption_style.name) {
+            st.caption_style = t.clone();
+        }
         st
     }
 
@@ -754,6 +758,16 @@ impl Library {
                 let _ = self.db.lock().delete("jobs", &id);
                 self.changed();
                 json!(true)
+            }
+            "cancel_jobs" => {
+                // Stop everything queued or running (optionally one kind, e.g. render), to change settings and queue again.
+                let kind = s("kind");
+                let ids: Vec<String> = self.all::<Job>("jobs").into_iter().filter(|j| matches!(j.status.as_str(), "queued" | "running") && kind.as_deref().map_or(true, |k| j.kind == k)).map(|j| j.id).collect();
+                for id in &ids {
+                    self.cancel_job(id);
+                }
+                self.changed();
+                json!(ids.len())
             }
             "clear_jobs" => {
                 let n = self.db.lock().delete_where::<Job>("jobs", |j| matches!(j.status.as_str(), "done" | "cancelled" | "failed")).unwrap_or(0);

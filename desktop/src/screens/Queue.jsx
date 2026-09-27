@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore, tryAct, ago } from "../store.js";
-import { Panel, Btn, Dot, Bar, I, Menu } from "../ui.jsx";
+import { Panel, Btn, Dot, Bar, I, Menu, Confirm } from "../ui.jsx";
 
 const COLS = "14px minmax(0,1.3fr) minmax(0,1fr) 90px 200px 150px 56px";
 const GROUPS = [["running", "Running"], ["queued", "Queued"], ["failed", "Failed"], ["done", "Done"], ["cancelled", "Cancelled"]];
@@ -14,6 +14,7 @@ export default function Queue() {
   const color = { running: "pink", queued: "", failed: "coral", done: "mint", cancelled: "muted" };
   const n = (st) => jobs.filter((v) => v.status === st).length;
   const [menu, setMenu] = useState(null); // { x, y, job }
+  const [askStop, setAskStop] = useState(false);
   // The file a job stands for: the finished render, else the lecture's video.
   const fileOf = (v) => (v.kind === "render" && v.status === "done" ? v.message : src(v)?.previewPath || src(v)?.videoPath);
   const folderOf = (v) => fileOf(v) || src(v)?.folder;
@@ -28,8 +29,9 @@ export default function Queue() {
   return (
     <div className="main">
       {menu && <Menu at={menu} items={menuItems(menu.job)} onClose={() => setMenu(null)} />}
+      {askStop && <Confirm text={`Stop ${n("running") + n("queued")} jobs? Running ones stop now. Files already made stay.`} yes="Stop all" no="Keep" onYes={() => { setAskStop(false); tryAct("cancel_jobs", {}, "Stopped"); }} onNo={() => setAskStop(false)} />}
       <div className="panel grow">
-        <div className="panel-head"><span>Jobs</span><span className="sub">{n("running")} running · {n("queued")} queued · {n("failed")} failed · {n("done")} done</span><span className="grow" /><Btn small onClick={() => jobs.filter((v) => v.status === "failed").forEach((v) => tryAct("retry_job", { id: v.id }))} disabled={!n("failed")}>Retry failed</Btn><Btn small onClick={() => tryAct("clear_jobs", {})}>Clear finished</Btn></div>
+        <div className="panel-head"><span>Jobs</span><span className="sub">{n("running")} running · {n("queued")} queued · {n("failed")} failed · {n("done")} done</span><span className="grow" /><Btn small onClick={() => jobs.filter((v) => v.status === "failed").forEach((v) => tryAct("retry_job", { id: v.id }))} disabled={!n("failed")}>Retry failed</Btn><Btn small danger onClick={() => setAskStop(true)} disabled={!n("running") && !n("queued")}>Cancel all</Btn><Btn small onClick={() => tryAct("clear_jobs", {})}>Clear finished</Btn></div>
         <div className="row head" style={{ gridTemplateColumns: COLS }}><span /><span>Job</span><span>Source</span><span>Kind</span><span>Progress</span><span>Status</span><span /></div>
         <div className="rows">
           {!jobs.length && <div className="empty">Nothing queued.</div>}

@@ -15,7 +15,7 @@ export default function Queue() {
   const n = (st) => jobs.filter((v) => v.status === st).length;
   const [menu, setMenu] = useState(null); // { x, y, job }
   // The file a job stands for: the finished render, else the lecture's video.
-  const fileOf = (v) => (v.kind === "render" && v.status === "done" ? v.message : src(v)?.videoPath);
+  const fileOf = (v) => (v.kind === "render" && v.status === "done" ? v.message : src(v)?.previewPath || src(v)?.videoPath);
   const folderOf = (v) => fileOf(v) || src(v)?.folder;
   const menuItems = (v) => [
     { label: "Play", disabled: !fileOf(v), onClick: () => tryAct("open", { path: fileOf(v) }) },

@@ -23,7 +23,8 @@ pub struct Downloaded {
     pub captions: Option<PathBuf>,
 }
 
-/// Best mp4 up to 1080p into `dir/source.mp4`, the poster, and the captions
+/// The best stream YouTube has (any resolution, VP9/AV1 included; AAC audio when offered)
+/// into `dir/source.mp4`, the poster, and the captions
 /// (manual first, then the original-language auto track) as VTT. `on_progress`
 /// gets 0..1 from yt-dlp's own percentage lines.
 pub fn download(url: &str, dir: &Path, lang: Option<&str>, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<Downloaded, String> {
@@ -34,7 +35,8 @@ pub fn download(url: &str, dir: &Path, lang: Option<&str>, mut on_progress: impl
     };
     let mut cmd = Command::new("yt-dlp");
     cmd.args([
-        "-f", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/b",
+        "-f", "bv*+ba[ext=m4a]/bv*+ba/b",
+        "-S", "res,fps,hdr:12,br",
         "--merge-output-format", "mp4",
         "--no-playlist", "--no-warnings", "--newline", "--progress",
         "--write-thumbnail", "--convert-thumbnails", "jpg",

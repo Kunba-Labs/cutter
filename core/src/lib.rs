@@ -388,6 +388,15 @@ impl Library {
                 });
                 json!(self.enqueue(&stage, &id, &src.title, json!({})))
             }
+            "redownload" => {
+                // The best stream again; transcript, reels and edits stay.
+                let id = id()?;
+                let src: Source = self.get("sources", &id).ok_or("no such source")?;
+                if src.url.is_none() {
+                    return Err("only for YouTube sources".into());
+                }
+                json!(self.enqueue("download", &id, &src.title, json!({ "keep": true })))
+            }
             "edit_segment" => {
                 // A corrected line of the transcript. Same word count keeps every timing;
                 // otherwise the new words share the line's span evenly.

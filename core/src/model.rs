@@ -25,6 +25,9 @@ pub struct Source {
     pub folder: String,
     pub video_path: Option<String>,
     pub thumb_path: Option<String>,
+    /// A 1080p H.264 copy for the in-app player when the original is VP9/AV1/4K. Renders use the original.
+    #[serde(default)]
+    pub preview_path: Option<String>,
     pub captions_path: Option<String>,
     /// "captions" | "whisper" | "both"
     pub transcript_source: String,
@@ -351,6 +354,8 @@ pub struct Settings {
     pub caption_style: CaptionStyle,
     pub caption_templates: Vec<CaptionStyle>,
     pub end_card: EndCard,
+    /// "best" | "good" | "fast", see ffmpeg::encoder_args.
+    pub render_quality: String,
     pub formats: Vec<String>,
     pub channel_name: String,
     pub glossary: Vec<String>,
@@ -382,6 +387,7 @@ impl Default for Settings {
             caption_style: CaptionStyle::default(),
             caption_templates: caption_templates(),
             end_card: EndCard { enabled: false, seconds: 2.5, paths: serde_json::json!({}), poster_id: None },
+            render_quality: "best".into(),
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
             channel_name: String::new(),
             glossary: vec!["Allah".into(), "salawat".into(), "dhikr".into(), "tafsir".into(), "sabr".into()],

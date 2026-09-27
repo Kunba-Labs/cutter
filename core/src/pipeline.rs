@@ -86,7 +86,15 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
     let mut src = source(lib, &job.ref_id)?;
     std::fs::create_dir_all(&src.folder).map_err(|e| e.to_string())?;
     let dir = PathBuf::from(&src.folder);
-    set_stage(lib, &mut src, "downloading", None);
+    // `keep`: fetch the stream again but leave transcript, reels and edits alone.
+    let keep = job.args["keep"].as_bool().unwrap_or(false);
+    let stage_before = src.stage.clone();
+    let prev = dir.join("source.prev.mp4");
+    if keep {
+        let _ = std::fs::rename(dir.join("source.mp4"), &prev);
+    } else {
+        set_stage(lib, &mut src, "downloading", None);
+    }
     let res: Result<(), String> = (|| {
         if let Some(p) = src.path.clone() {
             // A local file: link it into the folder so every source looks the same.
@@ -117,13 +125,39 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
             src.thumb_path = d.thumb.map(|p| p.display().to_string());
             src.captions_path = d.captions.map(|p| p.display().to_string());
         }
-        let probe = ffmpeg::probe(Path::new(src.video_path.as_ref().unwrap()))?;
+        let video = PathBuf::from(src.video_path.as_ref().unwrap());
+        let probe = ffmpeg::probe(&video)?;
         src.duration = Some(probe.duration);
         src.meta["width"] = json!(probe.width);
         src.meta["height"] = json!(probe.height);
         src.meta["hasAudio"] = json!(probe.has_audio);
+        src.meta["fps"] = json!(probe.fps);
+        src.meta["vcodec"] = json!(probe.vcodec);
+        // The in-app player wants H.264/AAC at 1080p or less; anything else gets a preview copy.
+        let preview = dir.join("preview.mp4");
+        let _ = std::fs::remove_file(&preview);
+        src.preview_path = None;
+        if probe.vcodec != "h264" || probe.width.max(probe.height) > 1920 || (probe.has_audio && probe.acodec != "aac") {
+            let jid = job.id.clone();
+            ffmpeg::proxy(&video, &preview, probe.duration, |p, m| lib.job_progress(&jid, p, &format!("preview copy {m}")))?;
+            src.preview_path = Some(preview.display().to_string());
+        }
         Ok(())
     })();
+    if keep {
+        match &res {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&prev);
+                src.stage = stage_before;
+                lib.save_source(&mut src);
+                return Ok(json!({ "message": format!("{}p {} · edits kept", src.meta["height"], src.meta["vcodec"].as_str().unwrap_or("")) }));
+            }
+            Err(e) => {
+                let _ = std::fs::rename(&prev, dir.join("source.mp4"));
+                return Err(e.clone());
+            }
+        }
+    }
     if let Err(mut e) = res {
         // A 403 on a video that lists fine is YouTube moving on from an old yt-dlp.
         if e.contains("403") {
@@ -285,7 +319,7 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let end_card = card_path.as_deref().map(|p| (p, s.end_card.seconds.clamp(0.5, 8.0)));
     let has_audio = src.meta["hasAudio"].as_bool().unwrap_or_else(|| ffmpeg::probe(&video).map(|p| p.has_audio).unwrap_or(true));
     let res = ffmpeg::render(
-        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: Some(&ass), end_card, has_audio },
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: Some(&ass), end_card, has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
         |p, m| lib.job_progress(&jid, p, m),
         |pid| lib.register_child(&jid, pid),
     );

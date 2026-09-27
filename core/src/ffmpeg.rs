@@ -7,23 +7,39 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Probe {
     pub duration: f64,
     pub width: i64,
     pub height: i64,
     pub has_audio: bool,
+    /// Frames per second, 30 when unreadable.
+    pub fps: f64,
+    /// "h264" | "vp9" | "av1" | …
+    pub vcodec: String,
+    pub acodec: String,
+}
+
+/// "30000/1001" → 29.97
+fn parse_rate(s: &str) -> Option<f64> {
+    let (n, d) = s.split_once('/')?;
+    let (n, d): (f64, f64) = (n.parse().ok()?, d.parse().ok()?);
+    (d > 0.0 && n > 0.0).then(|| n / d)
 }
 
 pub fn probe(path: &Path) -> Result<Probe, String> {
     let out = Command::new(crate::tools::ffprobe_bin()).args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"]).arg(path).output().map_err(|e| format!("ffprobe: {e}"))?;
     let v: Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe json: {e}"))?;
     let video = v["streams"].as_array().into_iter().flatten().find(|s| s["codec_type"] == "video").cloned().unwrap_or(Value::Null);
+    let audio = v["streams"].as_array().into_iter().flatten().find(|s| s["codec_type"] == "audio").cloned();
     Ok(Probe {
         duration: v["format"]["duration"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0.0),
         width: video["width"].as_i64().unwrap_or(1920),
         height: video["height"].as_i64().unwrap_or(1080),
-        has_audio: v["streams"].as_array().into_iter().flatten().any(|s| s["codec_type"] == "audio"),
+        has_audio: audio.is_some(),
+        fps: video["avg_frame_rate"].as_str().and_then(parse_rate).or_else(|| video["r_frame_rate"].as_str().and_then(parse_rate)).unwrap_or(30.0),
+        vcodec: video["codec_name"].as_str().unwrap_or_default().to_string(),
+        acodec: audio.as_ref().and_then(|a| a["codec_name"].as_str()).unwrap_or_default().to_string(),
     })
 }
 
@@ -73,6 +89,19 @@ pub struct RenderSpec<'a> {
     pub end_card: Option<(&'a Path, f64)>,
     /// The source has an audio stream (a screen recording may not).
     pub has_audio: bool,
+    /// Output frame rate: the source's, capped at 60.
+    pub fps: f64,
+    /// "best" (x264 slow, crf 16) | "good" (x264 medium, crf 18) | "fast" (VideoToolbox 12 Mbps)
+    pub quality: &'a str,
+}
+
+/// Encoder arguments for a quality setting.
+pub fn encoder_args(quality: &str) -> Vec<&'static str> {
+    match quality {
+        "fast" => vec!["-c:v", "h264_videotoolbox", "-b:v", "12M", "-maxrate", "16M", "-profile:v", "high", "-allow_sw", "1"],
+        "good" => vec!["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high"],
+        _ => vec!["-c:v", "libx264", "-preset", "slow", "-crf", "16", "-profile:v", "high"],
+    }
 }
 
 /// Aspect key for the end-card set: "9x16" | "4x5" | "16x9".
@@ -80,7 +109,51 @@ pub fn aspect_key(width: i64, height: i64) -> &'static str {
     if width > height { "16x9" } else if (width as f64 / height as f64) > 0.7 { "4x5" } else { "9x16" }
 }
 
-/// H.264 through VideoToolbox, AAC 192k, loudness −14 LUFS. Progress from
+/// Runs an ffmpeg command that was given `-progress pipe:1`, reporting 0..1 of `total` seconds.
+fn run_with_progress(cmd: &mut Command, total: f64, out: &Path, mut on_progress: impl FnMut(f64, &str)) -> Result<(), String> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("ffmpeg: {e}"))?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let err_thread = std::thread::spawn(move || {
+        let mut s = String::new();
+        for l in BufReader::new(stderr).lines().map_while(Result::ok) {
+            s.push_str(&l);
+            s.push('\n');
+        }
+        s
+    });
+    let mut last = std::time::Instant::now();
+    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+        if let Some(us) = line.strip_prefix("out_time_us=").or_else(|| line.strip_prefix("out_time_ms=")) {
+            if let Ok(v) = us.trim().parse::<f64>() {
+                if last.elapsed().as_millis() > 400 {
+                    last = std::time::Instant::now();
+                    let t = v / 1_000_000.0;
+                    on_progress((t / total).min(0.99), &format!("{} of {}", crate::model::fmt_time(t), crate::model::fmt_time(total)));
+                }
+            }
+        }
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    let err = err_thread.join().unwrap_or_default();
+    if status.success() && out.exists() {
+        Ok(())
+    } else {
+        Err(format!("ffmpeg exit {status}: {}", err.lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")))
+    }
+}
+
+/// A 1080p H.264/AAC copy of a source the in-app player cannot play (VP9, AV1, 4K, Opus).
+/// Renders still read the original.
+pub fn proxy(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64, &str)) -> Result<(), String> {
+    let mut cmd = Command::new(crate::tools::ffmpeg_bin());
+    cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]).arg("-i").arg(src);
+    cmd.args(["-vf", "scale=trunc(iw*min(1\\,min(1920/iw\\,1920/ih))/2)*2:-2", "-c:v", "h264_videotoolbox", "-b:v", "8M", "-allow_sw", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(out);
+    run_with_progress(&mut cmd, duration.max(0.1), out, on_progress)
+}
+
+/// H.264 at the chosen quality, AAC 192k, loudness −14 LUFS. Progress from
 /// `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
 pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<(), String> {
     let dur = (r.end - r.start).max(0.1);
@@ -91,13 +164,15 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
     }
     let vf = vf.join(",");
     let total = dur + r.end_card.map(|(_, s)| s).unwrap_or(0.0);
+    let fps = if r.fps > 1.0 { r.fps.min(60.0) } else { 30.0 };
+    let fps_s = format!("{fps:.3}");
     let mut run = |encoder: &[&str]| -> Result<(), String> {
         let mut cmd = Command::new(crate::tools::ffmpeg_bin());
         cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error", "-ss", &format!("{:.3}", r.start), "-to", &format!("{:.3}", r.end)]).arg("-i").arg(r.src);
         match r.end_card {
             Some((card, secs)) => {
                 // The cut, then the card as a second clip (silent audio), joined with a fade.
-                cmd.args(["-loop", "1", "-framerate", "30", "-t", &format!("{secs:.2}")]).arg("-i").arg(card);
+                cmd.args(["-loop", "1", "-framerate", &fps_s, "-t", &format!("{secs:.2}")]).arg("-i").arg(card);
                 cmd.args(["-f", "lavfi", "-t", &format!("{secs:.2}"), "-i", "anullsrc=r=48000:cl=stereo"]);
                 // A silent source stands in for a video that has no audio stream.
                 let a0 = if r.has_audio {
@@ -107,7 +182,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
                     "[3:a]anull[a0]".to_string()
                 };
                 let fc = format!(
-                    "[0:v]{vf},setsar=1,fps=30,format=yuv420p[v0];{a0};[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps=30,format=yuv420p,fade=t=in:st=0:d=0.35[v1];[v0][a0][v1][2:a]concat=n=2:v=1:a=1[v][a]",
+                    "[0:v]{vf},setsar=1,fps={fps_s},format=yuv420p[v0];{a0};[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={fps_s},format=yuv420p,fade=t=in:st=0:d=0.35[v1];[v0][a0][v1][2:a]concat=n=2:v=1:a=1[v][a]",
                     w = r.width,
                     h = r.height
                 );
@@ -120,50 +195,15 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
                 }
             }
         }
-        cmd.args(encoder)
-            .args(["-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1"])
-            .arg(r.out)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut child = cmd.spawn().map_err(|e| format!("ffmpeg: {e}"))?;
-        let pid = child.id();
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let err_thread = std::thread::spawn(move || {
-            let mut s = String::new();
-            for l in BufReader::new(stderr).lines().map_while(Result::ok) {
-                s.push_str(&l);
-                s.push('\n');
-            }
-            s
-        });
-        let mut last = std::time::Instant::now();
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if let Some(us) = line.strip_prefix("out_time_us=").or_else(|| line.strip_prefix("out_time_ms=")) {
-                if let Ok(v) = us.trim().parse::<f64>() {
-                    if last.elapsed().as_millis() > 400 {
-                        last = std::time::Instant::now();
-                        let t = v / 1_000_000.0;
-                        on_progress((t / total).min(0.99), &format!("{} of {}", crate::model::fmt_time(t), crate::model::fmt_time(total)));
-                    }
-                }
-            }
-        }
-        let status = child.wait().map_err(|e| e.to_string())?;
-        let err = err_thread.join().unwrap_or_default();
-        let _ = pid;
-        if status.success() && r.out.exists() {
-            Ok(())
-        } else {
-            Err(format!("ffmpeg exit {status}: {}", err.lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")))
-        }
+        cmd.args(encoder).args(["-pix_fmt", "yuv420p", "-r", &fps_s, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(r.out);
+        run_with_progress(&mut cmd, total, r.out, &mut on_progress)
     };
     let _ = &on_spawn;
-    match run(&["-c:v", "h264_videotoolbox", "-b:v", "9M", "-maxrate", "12M", "-profile:v", "high", "-allow_sw", "1"]) {
+    match run(&encoder_args(r.quality)) {
         Ok(()) => Ok(()),
         Err(e) if e.contains("videotoolbox") || e.contains("Unknown encoder") => {
-            log::warn!("videotoolbox failed ({e}); libx264 instead");
-            run(&["-c:v", "libx264", "-preset", "medium", "-crf", "18"])
+            log::warn!("hardware encoder failed ({e}); libx264 instead");
+            run(&encoder_args("good"))
         }
         Err(e) => Err(e),
     }

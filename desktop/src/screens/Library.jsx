@@ -143,6 +143,7 @@ function SourceInfo({ x, s, go }) {
         <Btn primary className="grow" onClick={() => go("reels", { sourceId: x.id })} disabled={!cands.length}>Review reels</Btn>
         <Btn onClick={() => go("library", { sourceId: x.id, view: "transcript" })} disabled={!x.videoPath}>Transcript</Btn>
         <Btn onClick={() => tryAct("run", { id: x.id, stage: x.videoPath ? (s.transcripts ? "detect" : "transcribe") : "download" }, "Queued")}>{x.stage === "failed" ? "Retry" : "Run"}</Btn>
+        {x.url && x.videoPath && <Btn onClick={() => tryAct("redownload", { id: x.id }, "Fetching the best stream")} title="Fetches the best stream YouTube has. Your transcript, reels and edits stay.">Download again</Btn>}
       </div>
     </>
   );

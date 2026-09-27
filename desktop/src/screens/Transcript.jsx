@@ -52,7 +52,7 @@ export default function Transcript({ nav, go }) {
         <div className="panel grow">
           <div className="panel-head"><a href="#" onClick={(e) => { e.preventDefault(); go("library", { sourceId: x.id, view: "reels" }); }} className="sec">Library</a><span className="muted">/</span><span className="ell">{x.title}</span><span className="grow" /><span className="sub">{x.meta?.width ? `${x.meta.height}p · ` : ""}{fmtLong(x.duration)} · {lang.toUpperCase()}</span></div>
           <div className="stage">
-            {x.videoPath ? <video ref={video} src={fileUrl(x.videoPath)} style={{ maxWidth: "100%", maxHeight: "100%" }} onClick={toggle} /> : <div className="empty">Not downloaded yet.</div>}
+            {x.videoPath ? <video ref={video} src={fileUrl(x.previewPath || x.videoPath)} style={{ maxWidth: "100%", maxHeight: "100%" }} onClick={toggle} /> : <div className="empty">Not downloaded yet.</div>}
             {cur >= 0 && <div className="cap" style={{ bottom: 32 }}><span className="line" style={{ fontSize: 22 }}>{words(segs[cur])}</span></div>}
           </div>
           <div className="transport">

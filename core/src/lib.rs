@@ -424,24 +424,25 @@ impl Library {
                 let id = id()?;
                 let idx = a["index"].as_u64().ok_or("index required")? as usize;
                 let wi = a["word"].as_u64().ok_or("word required")? as usize;
-                let text = s("text").ok_or("text required")?.trim().to_string();
-                if text.is_empty() || text.split_whitespace().count() != 1 {
-                    return Err("one word, please".into());
+                // Several words are fine ("Allah SWT"): they share the old word's time span evenly.
+                let new: Vec<String> = s("text").unwrap_or_default().split_whitespace().map(String::from).collect();
+                if new.is_empty() {
+                    return Err("type a word".into());
                 }
                 let mut t: Transcript = self.get("transcripts", &id).ok_or("no transcript")?;
                 let seg = t.segments.get_mut(idx).ok_or("no such line")?;
                 let mut tokens: Vec<String> = seg.text.split_whitespace().map(String::from).collect();
                 if seg.words.is_empty() {
-                    let tok = tokens.get_mut(wi).ok_or("no such word")?;
-                    *tok = text.clone();
-                } else {
-                    let w = seg.words.get_mut(wi).ok_or("no such word")?;
-                    w.w = text.clone();
-                    if tokens.len() == seg.words.len() {
-                        tokens[wi] = text.clone();
-                    } else {
-                        tokens = seg.words.iter().map(|w| w.w.clone()).collect();
+                    if wi >= tokens.len() {
+                        return Err("no such word".into());
                     }
+                    tokens.splice(wi..wi + 1, new);
+                } else {
+                    let old = seg.words.get(wi).ok_or("no such word")?.clone();
+                    let n = new.len() as f64;
+                    let timed: Vec<Word> = new.iter().enumerate().map(|(i, w)| Word { w: w.clone(), s: old.s + (old.e - old.s) * i as f64 / n, e: old.s + (old.e - old.s) * (i + 1) as f64 / n }).collect();
+                    seg.words.splice(wi..wi + 1, timed);
+                    tokens = seg.words.iter().map(|w| w.w.clone()).collect();
                 }
                 seg.text = tokens.join(" ");
                 let full: String = t.segments.iter().map(|g| g.text.as_str()).collect::<Vec<_>>().join(" ");

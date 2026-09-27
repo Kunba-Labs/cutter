@@ -468,7 +468,16 @@ fn publish(lib: &Library, job: &Job) -> Result<Value, String> {
                 let jid = job.id.clone();
                 let title = format!("{}{}", p.title.chars().take(95).collect::<String>(), auth.title_suffix);
                 let tags: Vec<String> = p.caption.split_whitespace().filter_map(|w| w.strip_prefix('#')).map(String::from).collect();
-                youtube::upload(&auth, &youtube::Upload { path: Path::new(&path), title: &title, description: &p.caption, tags: &tags, category_id: &auth.category_id, privacy: &auth.privacy, publish_at: publish_at.as_deref() }, |pr, m| lib.job_progress(&jid, pr, m))
+                let id = youtube::upload(&auth, &youtube::Upload { path: Path::new(&path), title: &title, description: &p.caption, tags: &tags, category_id: &auth.category_id, privacy: &auth.privacy, publish_at: publish_at.as_deref() }, |pr, m| lib.job_progress(&jid, pr, m))?;
+                // The chosen cover becomes the thumbnail; a refusal is logged, the post still counts.
+                if let Some(cover) = p.render_id.as_ref().and_then(|r| lib.get::<Render>("renders", r)).and_then(|r| r.cover_path).filter(|c| Path::new(c).exists()) {
+                    lib.job_progress(&jid, 0.98, "thumbnail");
+                    if let Err(e) = youtube::set_thumbnail(&auth, &id, Path::new(&cover)) {
+                        log::warn!("thumbnail for {id}: {e}");
+                        lib.job_progress(&jid, 0.99, &format!("posted, thumbnail not set: {e}"));
+                    }
+                }
+                Ok(id)
             }
             "folder" => {
                 // The file, its cover and the caption land in the drop folder under the post's title.

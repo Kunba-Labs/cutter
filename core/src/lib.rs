@@ -813,6 +813,16 @@ impl Library {
                 self.save_post(&mut p);
                 json!(self.enqueue("publish", &p.id, &p.title, json!({})))
             }
+            "set_thumbnail" => {
+                // Send the reel's cover as the thumbnail of a posted YouTube video. id = post id.
+                let id = id()?;
+                let p: Post = self.get("posts", &id).ok_or("no such post")?;
+                let video = p.provider_id.clone().ok_or("not posted yet")?;
+                let target = self.target_for(&p).ok_or("no target")?;
+                let cover = p.render_id.as_ref().and_then(|r| self.get::<Render>("renders", r)).and_then(|r| r.cover_path).ok_or("no cover for this post")?;
+                youtube::set_thumbnail(&self.youtube_auth(&target), &video, Path::new(&cover))?;
+                json!({ "video": video, "cover": cover })
+            }
             "set_privacy" => {
                 // Change privacy on a posted YouTube video: id = post id, privacy = public | unlisted | private.
                 let id = id()?;

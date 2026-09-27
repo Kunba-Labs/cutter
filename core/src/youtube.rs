@@ -98,6 +98,25 @@ pub fn set_privacy(auth: &YoutubeAuth, video_id: &str, privacy: &str) -> Result<
     }
 }
 
+/// The cover as the video's thumbnail (JPEG, at most 2 MB). Needs a phone-verified channel.
+pub fn set_thumbnail(auth: &YoutubeAuth, video_id: &str, jpeg: &Path) -> Result<(), String> {
+    let access = access_token(auth)?;
+    let bytes = std::fs::read(jpeg).map_err(|e| e.to_string())?;
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err("cover over 2 MB".into());
+    }
+    agent()
+        .post(&format!("https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={video_id}"))
+        .set("Authorization", &format!("Bearer {access}"))
+        .set("Content-Type", "image/jpeg")
+        .send_bytes(&bytes)
+        .map_err(|e| match e {
+            ureq::Error::Status(403, _) => "YouTube refused the thumbnail: custom thumbnails need a phone-verified channel (youtube.com/verify).".to_string(),
+            e => format!("thumbnail: {e}"),
+        })?;
+    Ok(())
+}
+
 pub struct Upload<'a> {
     pub path: &'a Path,
     pub title: &'a str,

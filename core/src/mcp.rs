@@ -57,6 +57,7 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("discard", "Discard a candidate (toggle).", r#"{"id":{"type":"string"}}"#, "id", "discard"),
     ("render", "Render reels: candidateIds, or sourceId for all approved. formats: shorts|reels|tiktok|feed|landscape.", r#"{"candidateIds":{"type":"array","items":{"type":"string"}},"sourceId":{"type":"string"},"formats":{"type":"array","items":{"type":"string"}}}"#, "", "render"),
     ("list_jobs", "The job queue with progress and messages.", r#"{}"#, "", "jobs"),
+    ("set_thumbnail", "Send the reel's cover as the thumbnail of a posted YouTube video. id = post id.", r#"{"id":{"type":"string"}}"#, "id", "set_thumbnail"),
     ("set_privacy", "Change privacy on a posted YouTube video: id = post id, privacy public|unlisted|private.", r#"{"id":{"type":"string"},"privacy":{"type":"string"}}"#, "id", "set_privacy"),
     ("add_target", "Add a place to post: kind youtube|instagram|tiktok|facebook|folder, optional name, path (folder), hours.", r#"{"kind":{"type":"string"},"name":{"type":"string"},"path":{"type":"string"},"hours":{"type":"array","items":{"type":"integer"}}}"#, "kind", "add_target"),
     ("update_target", "Change a target: patch with name, enabled, hours, format, autoSchedule, privacy, path…", r#"{"id":{"type":"string"},"patch":{"type":"object"}}"#, "id,patch", "update_target"),

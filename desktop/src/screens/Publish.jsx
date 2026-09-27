@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore, tryAct, fileUrl, ago } from "../store.js";
 import { Panel, Btn, Check, Text, Dot, Seg, I, Brand, CHANNEL_NAMES } from "../ui.jsx";
 
@@ -6,16 +6,24 @@ const CH = [["youtube", "YouTube Shorts"], ["instagram", "Instagram Reels"], ["t
 const dayKey = (d) => d.toISOString().slice(0, 10);
 const localKey = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const HOUR = 44; // px per hour on the grid
+const GUTTER = 52;
 
 export default function Publish({ go }) {
   const s = useStore();
   const [week, setWeek] = useState(0);
   const [selId, setSelId] = useState(null);
   const [view, setView] = useState("week");
-  const [dragId, setDragId] = useState(null);
-  const [overKey, setOverKey] = useState(null);
-  // Same clock time on the dropped day. Planned or failed posts move; confirmed and posted ones are already on their way.
-  const dropOn = (day) => { const p = s.posts.find((x) => x.id === dragId); setOverKey(null); setDragId(null); if (!p || !["planned", "failed"].includes(p.status)) return; const t = new Date(p.scheduledAt); const at = new Date(day); at.setHours(t.getHours(), t.getMinutes(), 0, 0); tryAct("update_post", { id: p.id, patch: { scheduledAt: at.toISOString() } }); };
+  // Dragging with the pointer (the browser's own drag API is taken by the window's file drop).
+  // drag = { postId | candidateId, title, x, y, slot: { col, mins } | null, moved }
+  const [drag, setDrag] = useState(null);
+  const gridRef = useRef(null);
+  useEffect(() => { if (view === "week" && gridRef.current) gridRef.current.scrollTop = 9 * HOUR; }, [view]);
+  const slotAt = (x, y) => { const g = gridRef.current; if (!g) return null; const r = g.getBoundingClientRect(); if (x < r.left + GUTTER || x > r.right || y < r.top || y > r.bottom) return null; const col = Math.min(6, Math.floor((x - r.left - GUTTER) / ((r.width - GUTTER) / 7))); const mins = Math.max(0, Math.min(24 * 60 - 15, Math.round(((y - r.top + g.scrollTop) / HOUR) * 4) * 15)); return { col, mins }; };
+  const startDrag = (e, item) => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag({ ...item, x: e.clientX, y: e.clientY, slot: null, moved: false }); };
+  const moveDrag = (e) => { if (!drag) return; const moved = drag.moved || Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4; setDrag({ ...drag, x: e.clientX, y: e.clientY, slot: moved ? slotAt(e.clientX, e.clientY) : null, moved }); };
+  const endDrag = () => { if (!drag) return; const d = drag; setDrag(null); if (!d.moved) { if (d.postId) setSelId(d.postId); return; } if (!d.slot) return; const at = new Date(days[d.slot.col]); at.setHours(Math.floor(d.slot.mins / 60), d.slot.mins % 60, 0, 0); if (d.postId) tryAct("update_post", { id: d.postId, patch: { scheduledAt: at.toISOString() } }); else if (d.candidateId && firstTarget) tryAct("schedule", { candidateId: d.candidateId, targetId: firstTarget.id, at: at.toISOString() }, `Planned for ${at.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} ${hhmm(at.toISOString())}`); };
+  const dragProps = (item) => ({ onPointerDown: (e) => startDrag(e, item), onPointerMove: moveDrag, onPointerUp: endDrag, onPointerCancel: () => setDrag(null) });
   // The first hour of the target's schedule, from tomorrow on, that has no post yet.
   const nextSlot = (t) => { const hours = t.hours?.length ? t.hours : [17]; for (let d = 1; d < 90; d++) { for (const h of hours) { const at = new Date(); at.setDate(at.getDate() + d); at.setHours(h, 0, 0, 0); const taken = s.posts.some((p) => p.targetId === t.id && Math.abs(new Date(p.scheduledAt) - at) < 3600000); if (!taken) return at; } } return null; };
   const post = s.posts.find((p) => p.id === selId);
@@ -41,7 +49,7 @@ export default function Publish({ go }) {
           <span className="hint">One reel per target per listed hour, oldest approved first. Planned posts wait for your confirm.</span>
         </Panel>
         <Panel title={`Unscheduled · ${unscheduled.length}`} className="grow">
-          {unscheduled.slice(0, 20).map((r) => { const c = s.candidates.find((c) => c.id === r.candidateId); return <div key={r.id} className="ell" style={{ fontSize: 13, color: "var(--text-2)", cursor: "pointer" }} onClick={() => { if (!firstTarget) return; const at = nextSlot(firstTarget); if (!at) return; tryAct("schedule", { candidateId: r.candidateId, targetId: firstTarget.id, at: at.toISOString() }, `Planned for ${at.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}`); }}>{c?.title || r.candidateId}</div>; })}
+          {unscheduled.slice(0, 20).map((r) => { const c = s.candidates.find((c) => c.id === r.candidateId); return <div key={r.id} className="ell" style={{ fontSize: 13, color: "var(--text-2)", cursor: "grab", touchAction: "none" }} title="Drag onto the calendar, or click for the next free slot" {...dragProps({ candidateId: r.candidateId, title: c?.title || "" })} onClick={() => { if (!firstTarget || drag) return; const at = nextSlot(firstTarget); if (!at) return; tryAct("schedule", { candidateId: r.candidateId, targetId: firstTarget.id, at: at.toISOString() }, `Planned for ${at.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}`); }}>{c?.title || r.candidateId}</div>; })}
           {!unscheduled.length && <span className="hint">Every rendered reel is on the calendar.</span>}
         </Panel>
       </div>
@@ -49,13 +57,19 @@ export default function Publish({ go }) {
         <div className="panel grow">
           <div className="panel-head"><span>Calendar</span><span className="sub">{days[0].toLocaleDateString([], { day: "numeric", month: "short" })} – {days[6].toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}</span><span className="grow" /><Seg value={view} onChange={setView} options={[["week", "Week"], ["list", "List"]]} /><Btn small icon onClick={() => setWeek(week - 1)} aria-label="Previous week">{I.prev}</Btn><Btn small onClick={() => setWeek(0)}>Today</Btn><Btn small icon onClick={() => setWeek(week + 1)} aria-label="Next week">{I.next}</Btn></div>
           {view === "week" ? (
-            <div className="cal">
-              {days.map((d) => { const k = localKey(d.toISOString()); const ps = s.posts.filter((p) => localKey(p.scheduledAt) === k).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)); return (
-                <div key={k} className={`day ${k === todayKey ? "today" : ""} ${overKey === k && dragId ? "over" : ""}`} onDragOver={(e) => { if (dragId) { e.preventDefault(); if (overKey !== k) setOverKey(k); } }} onDragLeave={() => overKey === k && setOverKey(null)} onDrop={(e) => { e.preventDefault(); dropOn(d); }}>
-                  <div className="day-head"><span>{d.toLocaleDateString([], { weekday: "short" })}</span><span style={{ fontWeight: 500 }}>{d.getDate()}</span></div>
-                  <div className="day-body">{ps.map((p) => <div key={p.id} className={`post ${p.status} ${post?.id === p.id ? "on" : ""} ${dragId === p.id ? "dragging" : ""}`} draggable={["planned", "failed"].includes(p.status)} onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", p.id); setDragId(p.id); }} onDragEnd={() => { setDragId(null); setOverKey(null); }} onClick={() => setSelId(p.id)} title={["planned", "failed"].includes(p.status) ? "Drag to another day" : undefined}><span className="t"><span>{hhmm(p.scheduledAt)}</span><span className="muted" style={{ display: "flex", alignItems: "center", gap: 4 }}><Brand id={p.channel} size={11} />{p.status === "posted" ? "✓" : p.status === "failed" ? "✕" : ""}</span></span><span className="ell">{p.title || "(poster)"}</span></div>)}</div>
-                </div>
-              ); })}
+            <div className="cal-wrap">
+              <div className="cal-heads"><div style={{ width: GUTTER, flexShrink: 0 }} />{days.map((d) => { const k = localKey(d.toISOString()); return <div key={k} className={`day-head ${k === todayKey ? "today" : ""}`}><span>{d.toLocaleDateString([], { weekday: "short" })}</span><span style={{ fontWeight: 500 }}>{d.getDate()}</span></div>; })}</div>
+              <div className="cal-grid" ref={gridRef}>
+                <div className="cal-gutter">{[...Array(24)].map((_, h) => <div key={h} className="cal-hour" style={{ height: HOUR }}>{String(h).padStart(2, "0")}:00</div>)}</div>
+                {days.map((d, col) => { const k = localKey(d.toISOString()); const ps = s.posts.filter((p) => localKey(p.scheduledAt) === k); return (
+                  <div key={k} className={`cal-col ${k === todayKey ? "today" : ""}`} style={{ height: 24 * HOUR }}>
+                    {[...Array(24)].map((_, h) => <div key={h} className="cal-line" style={{ top: h * HOUR }} />)}
+                    {drag?.slot?.col === col && <div className="cal-drop" style={{ top: (drag.slot.mins / 60) * HOUR, height: HOUR - 4 }}>{`${String(Math.floor(drag.slot.mins / 60)).padStart(2, "0")}:${String(drag.slot.mins % 60).padStart(2, "0")}`}</div>}
+                    {ps.map((p) => { const t = new Date(p.scheduledAt); const movable = ["planned", "failed"].includes(p.status); return <div key={p.id} className={`post ${p.status} ${post?.id === p.id ? "on" : ""} ${drag?.postId === p.id && drag.moved ? "dragging" : ""}`} style={{ position: "absolute", left: 3, right: 3, top: (t.getHours() * 60 + t.getMinutes()) / 60 * HOUR + 1, height: HOUR - 4, cursor: movable ? "grab" : "pointer", touchAction: "none" }} title={movable ? "Drag to another day or time" : undefined} {...(movable ? dragProps({ postId: p.id, title: p.title }) : { onClick: () => setSelId(p.id) })}><span className="t"><span>{hhmm(p.scheduledAt)}</span><span className="muted" style={{ display: "flex", alignItems: "center", gap: 4 }}><Brand id={p.channel} size={11} />{p.status === "posted" ? "✓" : p.status === "failed" ? "✕" : ""}</span></span><span className="ell">{p.title || "(poster)"}</span></div>; })}
+                  </div>
+                ); })}
+              </div>
+              {drag?.moved && <div className="drag-ghost" style={{ left: drag.x + 12, top: drag.y + 12 }}>{drag.title}</div>}
             </div>
           ) : (
             <div className="rows">{[...s.posts].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)).map((p) => <div key={p.id} className={`row ${post?.id === p.id ? "on" : ""}`} style={{ gridTemplateColumns: "130px minmax(0,1fr) 100px 120px" }} onClick={() => setSelId(p.id)}><span className="muted">{new Date(p.scheduledAt).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span><span className="ell">{p.title}</span><span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id={p.channel} size={12} />{CHANNEL_NAMES[p.channel]}</span><span className={p.status === "posted" ? "mint" : p.status === "failed" ? "coral" : p.status === "confirmed" ? "pink" : "cyan"}>{p.status}</span></div>)}</div>

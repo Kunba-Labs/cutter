@@ -109,16 +109,14 @@ Answer with JSON only: {{\"frame\": <1-9>, \"coverTitle\": \"<the line>\", \"why
 
 /// The cover line in the brain's answer, trimmed and capped.
 pub fn parse_cover_title(text: &str) -> Option<String> {
-    let (start, end) = (text.find('{')?, text.rfind('}')?);
-    let v: Value = serde_json::from_str(&text[start..=end]).ok()?;
+    let v = first_json(text, '{')?;
     let t = v["coverTitle"].as_str()?.trim().trim_matches('"').to_string();
     (!t.is_empty()).then(|| t.chars().take(120).collect())
 }
 
 /// The 1-based frame number in the brain's answer.
 pub fn parse_frame(text: &str) -> Option<usize> {
-    let (start, end) = (text.find('{')?, text.rfind('}')?);
-    let v: Value = serde_json::from_str(&text[start..=end]).ok()?;
+    let v = first_json(text, '{')?;
     let n = v["frame"].as_u64().or_else(|| v["frame"].as_str().and_then(|s| s.trim().parse().ok()))? as usize;
     (1..=9).contains(&n).then_some(n)
 }
@@ -197,14 +195,23 @@ fn wait_with_timeout(mut child: std::process::Child, timeout: Duration) -> Resul
     }
 }
 
+/// The first JSON value that starts with `open` in the answer, whatever the model wrote after it
+/// (a closing fence, a note with a bracket in it).
+pub fn first_json(text: &str, open: char) -> Option<Value> {
+    let mut from = 0;
+    while let Some(i) = text[from..].find(open) {
+        let start = from + i;
+        if let Some(Ok(v)) = serde_json::Deserializer::from_str(&text[start..]).into_iter::<Value>().next() {
+            return Some(v);
+        }
+        from = start + 1;
+    }
+    None
+}
+
 /// The JSON array inside whatever the model wrapped it in.
 pub fn parse_drafts(text: &str) -> Result<Vec<Draft>, String> {
-    let start = text.find('[').ok_or("no JSON array in the answer")?;
-    let end = text.rfind(']').ok_or("no JSON array in the answer")?;
-    if end <= start {
-        return Err("no JSON array in the answer".into());
-    }
-    let v: Value = serde_json::from_str(&text[start..=end]).map_err(|e| format!("reel json: {e}"))?;
+    let v = first_json(text, '[').ok_or_else(|| format!("no JSON array in the answer: {}", text.chars().take(200).collect::<String>()))?;
     let strs = |x: &Value| x.as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(|t| t.trim_start_matches('#').to_string())).collect()).unwrap_or_default();
     Ok(v.as_array()
         .into_iter()
@@ -318,6 +325,13 @@ pub fn chunks(segments: &[Segment]) -> Vec<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_json_ignores_what_follows() {
+        let t = "```json\n[{\"a\": 1}]\n```\nNote: see [1].";
+        assert_eq!(first_json(t, '[').unwrap()[0]["a"], 1);
+        assert_eq!(first_json("x {\"frame\": 3} and [more]", '{').unwrap()["frame"], 3);
+    }
     fn segs() -> Vec<Segment> {
         (0..10).map(|i| Segment { start: i as f64 * 10.0, end: i as f64 * 10.0 + 9.0, text: format!("line {i}"), words: vec![] }).collect()
     }
@@ -362,12 +376,7 @@ Lines:
 }
 
 pub fn parse_fixes(text: &str) -> Result<Vec<Fix>, String> {
-    let start = text.find('[').ok_or("no JSON array in the answer")?;
-    let end = text.rfind(']').ok_or("no JSON array in the answer")?;
-    if end < start {
-        return Err("no JSON array in the answer".into());
-    }
-    let v: Value = serde_json::from_str(&text[start..=end]).map_err(|e| format!("fix json: {e}"))?;
+    let v = first_json(text, '[').ok_or("no JSON array in the answer")?;
     Ok(v.as_array()
         .into_iter()
         .flatten()

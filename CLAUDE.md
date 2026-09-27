@@ -86,6 +86,8 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 
 ## Gotchas
 
+- A new document table must be listed in `db::TABLES`, or `put` fails quietly and `all` is empty.
+
 - A GUI app gets launchd's PATH: `tools::inherit_login_path()` runs first in both binaries.
 - yt-dlp: `--sub-langs xx.*` gets 429'd; ask for `xx,xx-orig,xx-xx`. `--dump-single-json` line
   is the last `{` line of stdout regardless of exit code.

@@ -32,7 +32,14 @@ export async function act(action, args = {}) {
   return invoke("dispatch", { action, args });
 }
 
-export const fileUrl = (p) => (!p ? p : http ? `${http.base}/file?token=${http.token}&path=${encodeURIComponent(p)}` : convertFileSrc ? convertFileSrc(p) : p);
+// `v` versions the address: a file rewritten in place gets a new one, so the webview cannot serve the old copy.
+export const fileUrl = (p, v) => {
+  if (!p) return p;
+  const q = v ? `v=${encodeURIComponent(v)}` : "";
+  if (http) return `${http.base}/file?token=${http.token}&path=${encodeURIComponent(p)}${q ? `&${q}` : ""}`;
+  const u = convertFileSrc ? convertFileSrc(p) : p;
+  return q ? `${u}?${q}` : u;
+};
 
 export async function refresh() {
   try {

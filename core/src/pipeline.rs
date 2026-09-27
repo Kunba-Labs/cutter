@@ -236,6 +236,8 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
         src.meta["fps"] = json!(probe.fps);
         src.meta["vcodec"] = json!(probe.vcodec);
         src.meta["kbps"] = json!(probe.kbps);
+        // Changes whenever the file is rewritten, so the in-app player reloads instead of keeping the old one.
+        src.meta["fileAt"] = json!(now());
         // The file must be a real video: a size, a length, something to hear when expected.
         let mut issues: Vec<String> = Vec::new();
         if probe.width < 640 || probe.height < 360 {

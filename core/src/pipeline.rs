@@ -54,6 +54,7 @@ fn run(lib: &Library, job: &Job) -> Result<Value, String> {
         "download" => download(lib, job),
         "transcribe" => transcribe(lib, job),
         "detect" => detect(lib, job),
+        "polish" => polish(lib, job),
         "render" => render(lib, job),
         "publish" => publish(lib, job),
         "check_channel" => check_channel(lib, job),
@@ -185,7 +186,9 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
     let _ = std::fs::write(Path::new(&src.folder).join("transcript.srt"), captions::srt(&t.segments, 0.0, f64::MAX));
     src.language = Some(t.language.clone());
     set_stage(lib, &mut src, "transcribed", None);
-    if src.auto_detect {
+    if s.polish_captions {
+        lib.enqueue("polish", &src.id, &src.title, json!({ "thenDetect": src.auto_detect }));
+    } else if src.auto_detect {
         lib.enqueue("detect", &src.id, &src.title, json!({}));
     }
     Ok(json!({ "message": format!("{} segments · {}", t.segments.len(), t.language) }))
@@ -533,4 +536,44 @@ fn endcards(lib: &Library, job: &Job) -> Result<Value, String> {
     crate::merge(&mut p.outputs, &out);
     lib.save_poster(&mut p);
     Ok(json!({ "message": format!("{} end cards", out.as_object().map(|o| o.len()).unwrap_or(0)) }))
+}
+
+/// Word-for-word corrections of clear transcript errors by the brain; keeps timings.
+fn polish(lib: &Library, job: &Job) -> Result<Value, String> {
+    let src = source(lib, &job.ref_id)?;
+    let mut t: Transcript = lib.get("transcripts", &src.id).ok_or("transcribe first")?;
+    let s = lib.settings();
+    let chunks = brain::chunks(&t.segments);
+    let mut fixes = Vec::new();
+    for (n, (a, b)) in chunks.iter().enumerate() {
+        lib.job_progress(&job.id, n as f64 / chunks.len() as f64, &format!("{} proofreading part {} of {}", s.brain, n + 1, chunks.len()));
+        let prompt = brain::polish_prompt(&t.segments[*a..*b], *a, &t.language);
+        let text = brain::ask(&s, &prompt, Duration::from_secs(10 * 60), |pid| lib.register_child(&job.id, pid))?;
+        match brain::parse_fixes(&text) {
+            Ok(f) => fixes.extend(f),
+            Err(e) => lib.job_log(&job.id, &format!("{e}: {}", text.chars().take(300).collect::<String>())),
+        }
+    }
+    let total_words: usize = t.segments.iter().map(|g| g.text.split_whitespace().count()).sum();
+    let changed: usize = fixes.iter().map(|f| f.from.split_whitespace().count()).sum();
+    // Faithfulness guard: more than 5% of the words touched is not proofreading any more.
+    if total_words > 0 && changed * 20 > total_words {
+        lib.job_log(&job.id, &format!("{changed} of {total_words} words would change; keeping the transcript as heard"));
+        fixes.clear();
+    }
+    let applied = brain::apply_fixes(&mut t.segments, &fixes);
+    if applied > 0 {
+        let text: String = t.segments.iter().map(|g| g.text.as_str()).collect::<Vec<_>>().join(" ");
+        lib.put("transcripts", &src.id, &now(), &t);
+        let _ = lib.db.lock().fts_put(&src.id, &text);
+        let _ = std::fs::write(Path::new(&src.folder).join("transcript.srt"), captions::srt(&t.segments, 0.0, f64::MAX));
+        for f in &fixes {
+            lib.job_log(&job.id, &format!("#{} {} → {}", f.seg, f.from, f.to));
+        }
+        lib.changed();
+    }
+    if job.args["thenDetect"].as_bool().unwrap_or(false) {
+        lib.enqueue("detect", &src.id, &src.title, json!({}));
+    }
+    Ok(json!({ "message": format!("{applied} fixes in {total_words} words") }))
 }

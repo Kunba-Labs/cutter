@@ -344,6 +344,8 @@ pub struct Settings {
     pub max_reel_s: i64,
     pub min_score: i64,
     pub auto_detect: bool,
+    /// Claude fixes clear transcript errors (word for word) before the reel search.
+    pub polish_captions: bool,
     pub auto_approve_score: i64,
     pub translate_to: String,
     pub caption_style: CaptionStyle,
@@ -374,6 +376,7 @@ impl Default for Settings {
             max_reel_s: 40,
             min_score: 6,
             auto_detect: true,
+            polish_captions: true,
             auto_approve_score: 0,
             translate_to: String::new(),
             caption_style: CaptionStyle::default(),

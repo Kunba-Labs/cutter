@@ -56,7 +56,7 @@ export default function Transcript({ nav, go }) {
       </div>
       <div className="col" style={{ width: 540, flexShrink: 0 }}>
         <div className="panel grow">
-          <div className="panel-head"><span className="grow">Transcript</span><span className="sub">{detail?.transcript ? `${detail.transcript.engine} · ${segs.length} segments` : "none yet"}</span><Btn small onClick={() => detail?.transcript && tryAct("open", { path: x.folder + "/transcript.srt" })} disabled={!detail?.transcript}>Open .srt</Btn></div>
+          <div className="panel-head"><span className="grow">Transcript</span><span className="sub">{detail?.transcript ? `${detail.transcript.engine} · ${segs.length} segments` : "none yet"}</span><Btn small onClick={() => tryAct("polish", { id: x.id, thenDetect: false }, "Claude is proofreading")} disabled={!detail?.transcript || !!s.jobs.find((j) => j.refId === x.id && j.kind === "polish" && (j.status === "running" || j.status === "queued"))} title="Fix clear errors word for word, keeping the timings">Polish</Btn><Btn small onClick={() => detail?.transcript && tryAct("open", { path: x.folder + "/transcript.srt" })} disabled={!detail?.transcript}>Open .srt</Btn></div>
           <div className="scroll" style={{ padding: "6px 0", fontSize: 13.5 }}>
             {!segs.length && <div className="empty">{x.stage === "transcribing" ? "Transcribing…" : "No transcript yet."}</div>}
             {segs.map((g, i) => { const c = candAt(g); return (

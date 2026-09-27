@@ -291,3 +291,135 @@ mod tests {
         assert_eq!(chunks(&segs()), vec![(0, 10)]);
     }
 }
+
+/// A correction: in segment `seg`, the words `from` become `to` (same count).
+pub struct Fix {
+    pub seg: usize,
+    pub from: String,
+    pub to: String,
+}
+
+pub fn polish_prompt(segments: &[Segment], offset: usize, language: &str) -> String {
+    let lines: Vec<String> = segments.iter().enumerate().map(|(i, g)| format!("#{} {}", i + offset, g.text.trim())).collect();
+    format!(
+        r##"You proofread an automatic transcript of a spoken lecture in {lang}, which becomes on-screen captions. Stay faithful to what was said: do NOT rephrase, shorten, translate or improve style. Only fix clear errors a viewer would notice: wrong verb forms (Dutch "trekte" → "trok"), misheard words that make no sense in context, misspelled names and religious terms, wrong homophones. Leave dialect, filler words, repetitions and informal grammar alone. Change at most about 5% of the words.
+
+Each fix replaces a run of words with the same number of words, so the timing of every word stays valid. Give the exact original words as they appear (case and punctuation included).
+
+Return ONLY a JSON array, no prose, possibly empty: [{{"seg": <line index>, "from": "<exact words in the line>", "to": "<replacement, same word count>"}}]
+
+Lines:
+{lines}"##,
+        lang = lang_name(language),
+        lines = lines.join("\n"),
+    )
+}
+
+pub fn parse_fixes(text: &str) -> Result<Vec<Fix>, String> {
+    let start = text.find('[').ok_or("no JSON array in the answer")?;
+    let end = text.rfind(']').ok_or("no JSON array in the answer")?;
+    if end < start {
+        return Err("no JSON array in the answer".into());
+    }
+    let v: Value = serde_json::from_str(&text[start..=end]).map_err(|e| format!("fix json: {e}"))?;
+    Ok(v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| Some(Fix { seg: f["seg"].as_u64()? as usize, from: f["from"].as_str()?.trim().to_string(), to: f["to"].as_str()?.trim().to_string() }))
+        .filter(|f| !f.from.is_empty() && !f.to.is_empty() && f.from != f.to && f.from.split_whitespace().count() == f.to.split_whitespace().count())
+        .collect())
+}
+
+fn strip_punct(w: &str) -> String {
+    w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase()
+}
+
+/// Runs of whole words (by stripped form) in `tokens`, as start indices, in order.
+fn word_runs(tokens: &[String], keys: &[String]) -> Vec<usize> {
+    if keys.is_empty() || tokens.len() < keys.len() {
+        return vec![];
+    }
+    (0..=tokens.len() - keys.len()).filter(|&i| tokens[i..i + keys.len()] == keys[..]).collect()
+}
+
+/// A word with the replacement's letters and the original's punctuation around them.
+fn reword(old: &str, new: &str) -> String {
+    let lead: String = old.chars().take_while(|c| !c.is_alphanumeric()).collect();
+    let trail: String = old.chars().rev().take_while(|c| !c.is_alphanumeric()).collect::<Vec<_>>().into_iter().rev().collect();
+    format!("{lead}{}{trail}", strip_punct_keep_case(new))
+}
+
+/// Apply fixes to the segments: the text and the timed words get the SAME
+/// occurrence, matched on whole words, and a fix that cannot be placed in
+/// both representations is skipped. Returns how many fixes landed.
+pub fn apply_fixes(segments: &mut [Segment], fixes: &[Fix]) -> usize {
+    let mut n = 0;
+    for f in fixes {
+        let Some(seg) = segments.get_mut(f.seg) else { continue };
+        let keys: Vec<String> = f.from.split_whitespace().map(strip_punct).collect();
+        let to: Vec<&str> = f.to.split_whitespace().collect();
+        if keys.is_empty() || keys.len() != to.len() {
+            continue;
+        }
+        let text_tokens: Vec<String> = seg.text.split_whitespace().map(String::from).collect();
+        let text_keys: Vec<String> = text_tokens.iter().map(|w| strip_punct(w)).collect();
+        // The occurrence: prefer the exact-cased one, else the first by stripped form.
+        let runs = word_runs(&text_keys, &keys);
+        let Some(&ti) = runs.iter().find(|&&i| text_tokens[i..i + keys.len()].iter().zip(f.from.split_whitespace()).all(|(a, b)| strip_punct_keep_case(a) == strip_punct_keep_case(b))).or(runs.first()) else { continue };
+        let ordinal = runs.iter().position(|&i| i == ti).unwrap_or(0);
+        // The same ordinal occurrence among the timed words, when there are any.
+        let wi = if seg.words.is_empty() {
+            None
+        } else {
+            let word_keys: Vec<String> = seg.words.iter().map(|w| strip_punct(&w.w)).collect();
+            let wruns = word_runs(&word_keys, &keys);
+            match wruns.get(ordinal).or(wruns.last()) {
+                Some(&i) => Some(i),
+                None => continue, // present in the text but not in the timed words: leave both alone
+            }
+        };
+        let mut tokens = text_tokens;
+        for (k, w) in to.iter().enumerate() {
+            tokens[ti + k] = reword(&tokens[ti + k], w);
+        }
+        seg.text = tokens.join(" ");
+        if let Some(i) = wi {
+            for (k, w) in to.iter().enumerate() {
+                seg.words[i + k].w = reword(&seg.words[i + k].w, w);
+            }
+        }
+        n += 1;
+    }
+    n
+}
+
+fn strip_punct_keep_case(w: &str) -> &str {
+    w.trim_matches(|c: char| !c.is_alphanumeric())
+}
+
+#[cfg(test)]
+mod polish_tests {
+    use super::*;
+    use crate::model::Word;
+    #[test]
+    fn fixes_keep_timing() {
+        let mut segs = vec![Segment { start: 0.0, end: 2.0, text: "En Allah trekte hun aandacht.".into(), words: vec![Word { w: "En".into(), s: 0.0, e: 0.3 }, Word { w: "Allah".into(), s: 0.3, e: 0.7 }, Word { w: "trekte".into(), s: 0.7, e: 1.1 }, Word { w: "hun".into(), s: 1.1, e: 1.4 }, Word { w: "aandacht.".into(), s: 1.4, e: 2.0 }] }];
+        let fixes = parse_fixes(r#"ok [{"seg":0,"from":"trekte","to":"trok"},{"seg":0,"from":"hun aandacht","to":"de aandacht van iedereen"},{"seg":5,"from":"x","to":"y"}]"#).unwrap();
+        assert_eq!(fixes.len(), 2); // the word-count change is refused; the out-of-range one is dropped on apply
+        assert_eq!(apply_fixes(&mut segs, &fixes), 1);
+        assert_eq!(segs[0].text, "En Allah trok hun aandacht.");
+        assert_eq!(segs[0].words[2].w, "trok");
+        assert_eq!(segs[0].words[2].s, 0.7);
+        // Same occurrence in both: "Hun … hun" with a fix on the second "hun".
+        let mut segs = vec![Segment { start: 0.0, end: 2.0, text: "Hun boek, hun keuze.".into(), words: ["Hun", "boek,", "hun", "keuze."].iter().enumerate().map(|(i, w)| Word { w: w.to_string(), s: i as f64 * 0.5, e: i as f64 * 0.5 + 0.4 }).collect() }];
+        let fixes = parse_fixes(r#"[{"seg":0,"from":"hun keuze","to":"zijn keuze"}]"#).unwrap();
+        assert_eq!(apply_fixes(&mut segs, &fixes), 1);
+        assert_eq!(segs[0].text, "Hun boek, zijn keuze.");
+        assert_eq!(segs[0].words[0].w, "Hun");
+        assert_eq!(segs[0].words[2].w, "zijn");
+        // A substring is not a word: "hun" must not touch "hunkering".
+        let mut segs = vec![Segment { start: 0.0, end: 1.0, text: "hunkering naar".into(), words: vec![Word { w: "hunkering".into(), s: 0.0, e: 0.5 }, Word { w: "naar".into(), s: 0.5, e: 1.0 }] }];
+        assert_eq!(apply_fixes(&mut segs, &parse_fixes(r#"[{"seg":0,"from":"hun","to":"zijn"}]"#).unwrap()), 0);
+        assert_eq!(segs[0].text, "hunkering naar");
+    }
+}

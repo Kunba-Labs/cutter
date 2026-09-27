@@ -382,6 +382,11 @@ impl Library {
                 });
                 json!(self.enqueue(&stage, &id, &src.title, json!({})))
             }
+            "polish" => {
+                let id = id()?;
+                let src: Source = self.get("sources", &id).ok_or("no such source")?;
+                json!(self.enqueue("polish", &id, &src.title, json!({ "thenDetect": a["thenDetect"].as_bool().unwrap_or(false) })))
+            }
             "set_language" => {
                 let id = id()?;
                 let mut src: Source = self.get("sources", &id).ok_or("no such source")?;

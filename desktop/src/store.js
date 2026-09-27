@@ -16,12 +16,23 @@ export const getState = () => state;
 
 let invoke, convertFileSrc;
 
+/* Browser mode (vite dev page, not inside Tauri): talk to the running app's
+   loopback API. Open http://localhost:5230/?token=<mcp token>&port=47251 */
+const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+const http = !tauri && q?.get("token") ? { base: `http://127.0.0.1:${q.get("port") || 47251}`, token: q.get("token") } : null;
+
 export async function act(action, args = {}) {
+  if (http) {
+    const r = await fetch(`${http.base}/dispatch`, { method: "POST", headers: { Authorization: `Bearer ${http.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action, args }) });
+    const v = await r.json();
+    if (!v.ok) throw new Error(v.error || "error");
+    return v.result;
+  }
   if (!tauri) throw new Error("Open this in the Cuttar app");
   return invoke("dispatch", { action, args });
 }
 
-export const fileUrl = (p) => (p && convertFileSrc ? convertFileSrc(p) : p);
+export const fileUrl = (p) => (!p ? p : http ? `${http.base}/file?token=${http.token}&path=${encodeURIComponent(p)}` : convertFileSrc ? convertFileSrc(p) : p);
 
 export async function refresh() {
   try {
@@ -57,6 +68,11 @@ export async function tryAct(action, args, okMsg) {
 }
 
 async function init() {
+  if (http) {
+    await refresh();
+    setInterval(refresh, 1500);
+    return;
+  }
   if (!tauri) {
     state = { ...state, ready: true, error: "Not inside the Cuttar app: run `bin/dev` (Tauri) instead of the bare Vite page." };
     emit();

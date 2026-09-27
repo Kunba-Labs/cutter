@@ -206,13 +206,75 @@ fn header<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
 fn respond_json(status: u16, body: String) -> Response<Cursor<Vec<u8>>> {
     let mut r = Response::from_string(body).with_status_code(status);
     r.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+    cors(r)
+}
+
+/// The Vite dev page (a loopback origin) may call the API from a browser; the
+/// origin gate below still refuses anything that is not loopback.
+fn cors<R: std::io::Read>(mut r: Response<R>) -> Response<R> {
+    r.add_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
+    r.add_header(Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Authorization, Content-Type"[..]).unwrap());
+    r.add_header(Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, POST, OPTIONS"[..]).unwrap());
     r
+}
+
+fn query_param(url: &str, key: &str) -> Option<String> {
+    url.split('?').nth(1)?.split('&').find_map(|kv| kv.strip_prefix(&format!("{key}=")).map(|v| percent_decode(v)))
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() + 1 && i + 2 <= b.len() - 1 + 1 {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..(i + 3).min(s.len())], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(if b[i] == b'+' { b' ' } else { b[i] });
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
 }
 
 fn handle(server: &Arc<McpServer>, mut req: Request) {
     let path = req.url().split('?').next().unwrap_or("").to_string();
     if req.method() == &Method::Get && path == "/health" {
-        let _ = req.respond(Response::from_string("ok"));
+        let _ = req.respond(cors(Response::from_string("ok")));
+        return;
+    }
+    if req.method() == &Method::Options {
+        let _ = req.respond(cors(Response::from_string("")).with_status_code(204));
+        return;
+    }
+    // A media file for the browser-mode preview: token in the query, only files under the output or data folders.
+    if req.method() == &Method::Get && path == "/file" {
+        let url = req.url().to_string();
+        let ok = query_param(&url, "token").map(|t| ct_eq(&t, &server.token)).unwrap_or(false);
+        let Some(p) = query_param(&url, "path") else {
+            let _ = req.respond(Response::from_string("path required").with_status_code(400));
+            return;
+        };
+        let out_dir = server.lib.out_dir();
+        let allowed = std::path::Path::new(&p).canonicalize().map(|c| c.starts_with(&out_dir) || c.starts_with(&server.lib.data_dir)).unwrap_or(false);
+        if !ok || !allowed {
+            let _ = req.respond(Response::from_string("forbidden").with_status_code(403));
+            return;
+        }
+        match std::fs::File::open(&p) {
+            Ok(f) => {
+                let mime = match std::path::Path::new(&p).extension().and_then(|e| e.to_str()) { Some("mp4") => "video/mp4", Some("jpg") | Some("jpeg") => "image/jpeg", Some("png") => "image/png", _ => "application/octet-stream" };
+                let mut r = Response::from_file(f);
+                r.add_header(Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap());
+                let _ = req.respond(cors(r));
+            }
+            Err(_) => {
+                let _ = req.respond(Response::from_string("not found").with_status_code(404));
+            }
+        }
         return;
     }
     if req.method() != &Method::Post || !(path == "/mcp" || path == "/dispatch") {

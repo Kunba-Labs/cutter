@@ -41,13 +41,13 @@ export default function Posters({ go }) {
         </Panel>
         <Panel title="Used before · avoid" className="grow">
           {(s.settings.posterHistory || []).slice(-8).map((h, i) => <span key={i} style={{ fontSize: 13, color: "var(--text-2)" }}>{h}</span>)}
-          <span className="hint">Claude picks palettes outside this list; add to it in Settings › Posters or when exporting.</span>
+          <span className="hint">Claude avoids these. Add more under Settings › Posters.</span>
         </Panel>
       </div>
       {!p ? <div className="panel grow"><div className="empty">Choose a template to start a poster.</div></div> : (
         <>
           <div className="col grow">
-            <Panel title="Fields" sub={`${p.template} · fixed text from the template, date set to the coming Friday`} style={{ flexShrink: 0 }} right={<Btn small icon danger onClick={() => confirm("Remove this poster?") && tryAct("remove_poster", { id: p.id })} aria-label="Remove">{I.trash}</Btn>}>
+            <Panel title="Fields" sub={`${p.template}, date set to the coming Friday`} style={{ flexShrink: 0 }} right={<Btn small icon danger onClick={() => confirm("Remove this poster?") && tryAct("remove_poster", { id: p.id })} aria-label="Remove">{I.trash}</Btn>}>
               <div className="grid2">
                 <label className="field"><span>Title</span><Text value={p.title} onCommit={(v) => tryAct("update_poster", { id: p.id, patch: { title: v } })} /></label>
                 <label className="field"><span>Subtitle</span><Text value={f.subtitle} onCommit={(v) => patchField("subtitle", v)} /></label>
@@ -57,9 +57,9 @@ export default function Posters({ go }) {
                 <label className="field"><span>Location</span><Text value={f.location} onCommit={(v) => patchField("location", v)} /></label>
                 <label className="field"><span>QR link</span><Text value={f.qrLink} onCommit={(v) => patchField("qrLink", v)} placeholder="https://chat.whatsapp.com/…" /></label>
                 <label className="field"><span>QR caption</span><Text value={f.qrCaption} onCommit={(v) => patchField("qrCaption", v)} /></label>
-                <label className="field" style={{ gridColumn: "1 / -1" }}><span>Extra brief for Claude (style wishes, colours to try, what to avoid)</span><Text value={f.brief} onCommit={(v) => patchField("brief", v)} placeholder="e.g. autumn palette, no lantern this week" /></label>
+                <label className="field" style={{ gridColumn: "1 / -1" }}><span>Extra wishes for Claude</span><Text value={f.brief} onCommit={(v) => patchField("brief", v)} placeholder="e.g. autumn palette, no lantern this week" /></label>
               </div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span className="hint grow">{s.settings.posterReferenceMedia ? "Speaker photo reference set" : "No speaker photo reference (Settings › Posters)"} · each variant gets a blank white panel; the QR is pasted and decoded locally.</span><Btn primary disabled={!!job} onClick={() => tryAct("generate_poster", { id: p.id }, "Claude + Higgsfield are drawing")}>{job ? job.message || "Generating…" : p.variants?.length ? "Generate 3 more" : "Generate 3 variants"}</Btn></div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span className="hint grow">{s.settings.posterReferenceMedia ? "Speaker photo set." : "No speaker photo yet (Settings › Posters)."} Each variant gets a white panel for the QR.</span><Btn primary disabled={!!job} onClick={() => tryAct("generate_poster", { id: p.id }, "Claude + Higgsfield are drawing")}>{job ? job.message || "Generating…" : p.variants?.length ? "Generate 3 more" : "Generate 3 variants"}</Btn></div>
             </Panel>
             <div className="panel grow">
               <div className="panel-head"><span>Variants</span><span className="sub">{p.variants?.length ? `${p.variants.length} · QR ${p.qrOk ? "pasted and decoded ✓" : "not verified"}` : job ? job.message : "none yet"}</span><span className="grow" /><Btn small onClick={() => tryAct("open", { path: p.folder })}>Open folder</Btn><Btn small onClick={async () => { const path = prompt("Path to a PNG to add as a variant"); if (path) tryAct("add_variant", { id: p.id, path }, "Variant added"); }}>Add file…</Btn></div>
@@ -74,20 +74,20 @@ export default function Posters({ go }) {
             <div className="panel-head"><span className="grow">Export</span><span className="sub">{p.chosen ? `variant ${p.variants.indexOf(p.chosen) + 1}` : "choose a variant"}</span></div>
             <div className="panel-body">
               {p.chosen && <div style={{ display: "flex", gap: 10 }}><img src={fileUrl(p.chosen)} alt="" style={{ width: 88, height: 132, objectFit: "cover", borderRadius: 3 }} /><div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.qrOk ? "mint" : "muted"} />QR {p.qrOk ? "decodes" : "not verified"}</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.print ? "mint" : "muted"} />print · jpeg · feed · story</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.["waiting-16x9"] ? "mint" : "muted"} />waiting videos</span></div></div>}
-              <label className="field"><span>Palette of the chosen one (remembered, so it is not repeated)</span><Text value={f.chosenPalette ?? (p.chosen ? f.palettes?.[p.variants.indexOf(p.chosen)] : "")} onCommit={(v) => patchField("chosenPalette", v)} placeholder="emerald + gold, mihrab arch" /></label>
+              <label className="field"><span>Palette of the chosen one, so it is not repeated</span><Text value={f.chosenPalette ?? (p.chosen ? f.palettes?.[p.variants.indexOf(p.chosen)] : "")} onCommit={(v) => patchField("chosenPalette", v)} placeholder="emerald + gold, mihrab arch" /></label>
               <Btn primary disabled={!p.chosen} onClick={() => tryAct("export_poster", { id: p.id, palette: f.chosenPalette || f.palettes?.[p.variants.indexOf(p.chosen)] || "" }, "Exported: print, JPEG 1600, feed 4:5, story 9:16")}>Export files</Btn>
               {p.outputs && Object.entries(p.outputs).filter(([k]) => !k.startsWith("waiting") && !k.startsWith("break") && !k.startsWith("ended")).map(([k, v]) => <a key={k} href="#" style={{ fontSize: 13 }} onClick={(e) => { e.preventDefault(); tryAct("open", { path: v, reveal: true }); }}>{k} · {String(v).split("/").pop()}</a>)}
               <div style={{ borderTop: "1px solid var(--rule)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                <span className="label">Waiting video · "Begint zo" loop for the stream</span>
-                <label className="field"><span>Event starts (local) · default next Friday 20:00</span><input className="input" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} /></label>
-                <span className="hint">16:9 for YouTube Live and 9:16 for Instagram Live, a burned countdown to the start, plus "we zijn zo terug" and "afgelopen" stills. Render on the day so the countdown is right.</span>
+                <span className="label">Waiting video for the stream</span>
+                <label className="field"><span>Event starts (default next Friday 20:00)</span><input className="input" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+                <span className="hint">Loops for YouTube Live and Instagram Live with the countdown burned in. Render on the day.</span>
                 <Btn disabled={!p.chosen} onClick={() => tryAct("waiting_video", { id: p.id, startAt: startIso(), countdown: true, loopS: 600 }, "Rendering the waiting videos")}>Render waiting videos</Btn>
                 {p.outputs && Object.entries(p.outputs).filter(([k]) => k.startsWith("waiting") || k.startsWith("break") || k.startsWith("ended")).map(([k, v]) => <a key={k} href="#" style={{ fontSize: 13 }} onClick={(e) => { e.preventDefault(); tryAct("open", { path: v }); }}>{k} ▸</a>)}
               </div>
               <div style={{ borderTop: "1px solid var(--rule)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                <span className="label">End cards for the reels · the closing frame, in this poster's style</span>
-                <span className="hint">Three cards: 9:16 for Shorts, Reels and TikTok, 4:5 for the feed, 16:9 for landscape. Appended to every render for {s.settings.endCard?.seconds ?? 2.5} s.</span>
-                <label className="field"><span>Extra brief for the cards (optional)</span><Text value={f.endCardBrief} onCommit={(v) => patchField("endCardBrief", v)} placeholder="e.g. keep the lantern, add 'elke vrijdag'" /></label>
+                <span className="label">End cards for the reels, in this poster's style</span>
+                <span className="hint">One card per shape: 9:16, 4:5 and 16:9. Added to every reel for {s.settings.endCard?.seconds ?? 2.5} s.</span>
+                <label className="field"><span>Extra wishes for the cards</span><Text value={f.endCardBrief} onCommit={(v) => patchField("endCardBrief", v)} placeholder="e.g. keep the lantern, add 'elke vrijdag'" /></label>
                 <Btn disabled={!!s.jobs.find((j) => j.refId === p.id && j.kind === "endcards" && (j.status === "running" || j.status === "queued"))} onClick={() => tryAct("end_cards", { id: p.id }, "Drawing the end cards")}>{p.outputs?.["endcard-9x16"] ? "Draw the end cards again" : "Draw end cards"}</Btn>
                 {p.outputs?.["endcard-9x16"] && <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>{[["endcard-9x16", 36, 64], ["endcard-4x5", 48, 60], ["endcard-16x9", 96, 54]].map(([k, w, h]) => p.outputs[k] && <img key={k} src={fileUrl(p.outputs[k])} alt="" style={{ width: w, height: h, objectFit: "cover", borderRadius: 3, border: s.settings.endCard?.posterId === p.id && s.settings.endCard?.enabled ? "2px solid var(--mint)" : "1px solid var(--rule)", cursor: "pointer" }} onClick={() => tryAct("open", { path: p.outputs[k] })} />)}<Btn primary={!(s.settings.endCard?.posterId === p.id && s.settings.endCard?.enabled)} small onClick={() => tryAct("use_end_cards", { id: p.id, enabled: true }, "End cards on for every render")}>{s.settings.endCard?.posterId === p.id && s.settings.endCard?.enabled ? "In use ✓" : "Use on every reel"}</Btn></div>}
               </div>

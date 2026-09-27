@@ -83,7 +83,7 @@ export default function Style({ nav, go }) {
           ))}
         </div>
         <span className="grow" />
-        <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch" }}><span className="hint">Templates that work on Shorts, Reels and TikTok. A reel uses the default unless you pick one in its inspector.</span></div>
+        <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch" }}><span className="hint">Looks that work on Shorts, Reels and TikTok. Reels use the default unless you pick one.</span></div>
       </div>
 
       <div className="panel grow">
@@ -96,7 +96,7 @@ export default function Style({ nav, go }) {
             {t.watermark && s.settings.channelName && <div style={{ position: "absolute", left: 12, bottom: 12, fontSize: 11 * k, fontWeight: 700, color: "#fff", textShadow: "0 1px 3px #000" }}>{s.settings.channelName}</div>}
           </div>
         </div>
-        <div className="transport"><span className="muted">Sample line with the third word highlighted; drag it to set the position. Long lines wrap within the side margins, in the render too.</span></div>
+        <div className="transport"><span className="muted">Sample line with the third word lit. Drag it to place it. Long lines wrap.</span></div>
       </div>
 
       <div className="panel" style={{ width: 340, flexShrink: 0 }}>
@@ -118,7 +118,7 @@ export default function Style({ nav, go }) {
             <Check label="Hook at the top, first 2.5 s" checked={t.hook} onChange={(v) => patch({ hook: v })} />
             <Check label="Channel name watermark" checked={t.watermark} onChange={(v) => patch({ watermark: v })} />
           </div>
-          <span className="hint">Highlight equal to the text colour means no word highlight. Arabic and Urdu switch to Geeza Pro on render.</span>
+          <span className="hint">Same highlight and text colour means no lit word. Arabic and Urdu use Geeza Pro.</span>
           <div style={{ borderTop: "1px solid var(--rule)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
             <b>Title at the top</b>
             <Row label="Font"><select className="input" value={t.hookFont || ""} onChange={(e) => patch({ hookFont: e.target.value })}><option value="">Same as captions</option>{["Helvetica Neue", "Arial Black", "Avenir Next Condensed", "Futura", "Impact", "SF Pro Rounded", "Georgia", "Baskerville", "Didot", "Menlo", "Geeza Pro"].map((f) => <option key={f} value={f}>{f}</option>)}</select></Row>

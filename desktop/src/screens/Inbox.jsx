@@ -34,7 +34,7 @@ export default function Inbox({ go, setAdding }) {
               <Check label="Auto-approve score ≥ 8 and render" checked={ch.autoApproveScore > 0} onChange={(v) => patch({ autoApproveScore: v ? 8 : 0 })} />
               <Check label="Schedule without my review" checked={ch.autoSchedule} onChange={(v) => patch({ autoSchedule: v })} />
             </div>
-            <span className="hint">{ch.url}<br />Last checked {ch.lastCheck ? ago(ch.lastCheck) : "never"}{ch.lastError && <span className="coral"> · {ch.lastError}</span>}<br />Listing only: nothing downloads until a rule or you say so.</span>
+            <span className="hint">{ch.url}<br />Last checked {ch.lastCheck ? ago(ch.lastCheck) : "never"}{ch.lastError && <span className="coral"> · {ch.lastError}</span>}<br />Nothing downloads until a rule or you say so.</span>
           </Panel>
         )}
       </div>

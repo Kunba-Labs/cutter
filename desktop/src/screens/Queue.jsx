@@ -23,7 +23,7 @@ export default function Queue() {
           {!jobs.length && <div className="empty">Nothing queued.</div>}
           {GROUPS.map(([st, label]) => { const g = jobs.filter((v) => v.status === st); if (!g.length) return null; return (
             <div key={st}>
-              <div className="group-row"><b>{label}</b><span>{g.length}{st === "running" ? ` of ${s.settings.parallelJobs || 2} slots · one transcript at a time` : ""}</span></div>
+              <div className="group-row"><b>{label}</b><span>{g.length}{st === "running" ? ` of ${s.settings.parallelJobs || 2} at a time` : ""}</span></div>
               {g.slice(0, st === "done" ? 60 : 200).map((v) => (
                 <div key={v.id} className={`row ${j?.id === v.id ? "on" : ""}`} style={{ gridTemplateColumns: COLS }} onClick={() => setSelId(v.id)}>
                   <Dot c={color[v.status]} />
@@ -62,7 +62,7 @@ export default function Queue() {
           )}
         </div>
         <Panel title="This Mac" style={{ flexShrink: 0 }}>
-          <div className="kv"><span>Slots</span><span>{s.settings.parallelJobs || 2} parallel · one transcript at a time</span><span>Whisper</span><span className="ell">{s.settings.whisperModel}</span><span>Brain</span><span>{s.settings.brain === "ollama" ? `ollama · ${s.settings.ollamaModel}` : "claude CLI"}</span><span>Output</span><span className="ell">{s.paths.outDir}</span><span>Log</span><span className="ell"><a href="#" onClick={(e) => { e.preventDefault(); tryAct("open", { path: s.paths.log }); }}>{s.paths.log}</a></span></div>
+          <div className="kv"><span>Slots</span><span>{s.settings.parallelJobs || 2} at a time, one transcript at a time</span><span>Whisper</span><span className="ell">{s.settings.whisperModel}</span><span>Brain</span><span>{s.settings.brain === "ollama" ? `ollama · ${s.settings.ollamaModel}` : "claude CLI"}</span><span>Output</span><span className="ell">{s.paths.outDir}</span><span>Log</span><span className="ell"><a href="#" onClick={(e) => { e.preventDefault(); tryAct("open", { path: s.paths.log }); }}>{s.paths.log}</a></span></div>
         </Panel>
       </div>
     </div>

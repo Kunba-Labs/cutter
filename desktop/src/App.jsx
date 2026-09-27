@@ -21,7 +21,7 @@ class Boundary extends Component {
     if (!this.state.error) return this.props.children;
     return (
       <div className="panel grow"><div className="empty" style={{ userSelect: "text" }}>
-        <b className="coral">This screen hit a bug.</b><br />
+        <b className="coral">This screen broke.</b><br />
         <span className="mono">{String(this.state.error?.message || this.state.error)}</span><br /><br />
         <Btn onClick={this.props.onHome}>Back to the library</Btn>
       </div></div>

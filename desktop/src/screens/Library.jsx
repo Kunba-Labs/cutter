@@ -62,7 +62,7 @@ export default function Library({ nav, go, query, setAdding }) {
           <div className="panel-head"><span>Library</span><span className="sub">{shown.length} sources</span><span className="grow" /><Btn small onClick={() => sel && tryAct("run", { id: sel.id })} disabled={!sel}>Run next stage on selected</Btn></div>
           <div className="row head" style={{ gridTemplateColumns: "48px minmax(0,1fr) 46px 200px 90px 80px" }}><span /><span>Name</span><span>Lang</span><span>Stage</span><span>Reels</span><span>Updated</span></div>
           <div className="rows">
-            {shown.length === 0 && <div className="empty">Nothing here yet. Add a YouTube link, watch a channel, or drop a file (⌘N).</div>}
+            {shown.length === 0 && <div className="empty">Nothing here yet. Add a link, watch a channel or drop a file.</div>}
             {shown.map((x) => {
               const [c, label] = STAGES[x.stage] || ["muted", x.stage];
               const j = jobOf(x.id);

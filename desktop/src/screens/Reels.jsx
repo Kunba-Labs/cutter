@@ -65,7 +65,7 @@ export default function Reels({ nav, go }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (!x || !c) return <div className="empty">No reel candidates yet.<br />Add a source and let Claude read the transcript, or mark a reel from the Transcript screen.</div>;
+  if (!x || !c) return <div className="empty">No reels yet. Add a lecture, or mark one on the Transcript screen.</div>;
 
   const segs = detail?.transcript?.segments || [];
   const patch = (p) => tryAct("update_candidate", { id: c.id, patch: p });
@@ -154,13 +154,13 @@ export default function Reels({ nav, go }) {
 
       <div className="col grow">
         <div className="panel grow">
-          <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><span className="sub">zoom</span><input type="range" className="slider" style={{ width: 120 }} min="1" max="2.5" step="0.05" value={cz} onChange={(e) => setZoom(+e.target.value)} title="Zoom the crop window" /><span className="num sub" style={{ width: 36 }}>{cz.toFixed(2)}×</span></div>
+          <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><Speed value={speed} onChange={setSpeed} /><span className="sub" style={{ marginLeft: 8 }}>zoom</span><input type="range" className="slider" style={{ width: 120 }} min="1" max="2.5" step="0.05" value={cz} onChange={(e) => setZoom(+e.target.value)} title="Zoom the crop window" /><span className="num sub" style={{ width: 36 }}>{cz.toFixed(2)}×</span></div>
           <div className="stage" ref={stageRef}>
             <div className="frame" style={{ width: frameW, height: frameH, cursor: zoomW > frameW + 1 || zoomH > frameH + 1 ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
               {x.videoPath && <video ref={video} src={fileUrl(x.videoPath)} style={{ left, top, width: zoomW, height: zoomH, pointerEvents: "none" }} muted={false} />}
               {hold && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {hookTpl.hook !== false && c.hook && t - c.start < (hookTpl.hookSeconds || 2.5) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
-              {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="drag up or down to move the captions"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
+              {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
@@ -170,7 +170,7 @@ export default function Reels({ nav, go }) {
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.max(0, i - 1)]?.id); }} aria-label="Previous">{I.prev}</Btn>
             <Btn icon primary onClick={toggle} aria-label="Play">{playing ? I.pause : I.play}</Btn>
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }} aria-label="Next">{I.next}</Btn>
-            <span className="muted">loops the reel · drag the picture to move the crop · drag the captions to move them{c.captionPct != null && <> · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset caption position</a></>}</span><span className="grow" /><span className="muted">space play · ↑↓ candidates · [ ] set in/out at playhead · a tick</span>
+            <span className="muted">loops the reel · drag the picture to move the crop · drag the captions to move them{c.captionPct != null && <> · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset caption position</a></>}</span><span className="grow" /><span className="muted">Space plays. Arrows switch reels. [ and ] set in and out. A ticks.</span>
           </div>
         </div>
         <Panel title="Trim" sub={`in ${fmt(c.start)} · out ${fmt(c.end)} · ${dur.toFixed(1)} s`} right={<><Btn small onClick={snapEnd}>Snap out to sentence</Btn><Btn small onClick={() => patch({ start: Math.max(0, t) })}>In = playhead</Btn><Btn small onClick={() => patch({ end: Math.max(c.start + 3, t) })}>Out = playhead</Btn></>} style={{ height: 150, flexShrink: 0 }}>
@@ -179,7 +179,7 @@ export default function Reels({ nav, go }) {
             <span className="sel" style={{ left: `${(5 / (dur + 10)) * 100}%`, width: `${(dur / (dur + 10)) * 100}%` }} />
             <span className="cur" style={{ left: `${((t - c.start + 5) / (dur + 10)) * 100}%` }} />
           </div>
-          <div className="words">{inWords.map((w, i) => <span key={i} className={t >= w.s && t < w.e ? "cur" : w.s >= c.start - 0.05 && w.e <= c.end + 0.05 ? "in" : ""} onClick={(e) => { if (e.altKey) patch({ start: w.s }); else if (e.shiftKey) patch({ end: w.e }); else seek(w.s); }} title="click: seek · ⌥click: set in · ⇧click: set out">{w.w}</span>)}</div>
+          <div className="words">{inWords.map((w, i) => <span key={i} className={t >= w.s && t < w.e ? "cur" : w.s >= c.start - 0.05 && w.e <= c.end + 0.05 ? "in" : ""} onClick={(e) => { if (e.altKey) patch({ start: w.s }); else if (e.shiftKey) patch({ end: w.e }); else seek(w.s); }} title="Click to jump. Option-click sets the start, Shift-click the end.">{w.w}</span>)}</div>
         </Panel>
       </div>
 
@@ -190,7 +190,7 @@ export default function Reels({ nav, go }) {
           <div className="insp-group">
             <div className="insp-head">Text</div>
             <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
-            <Field label={`Title on the video · first ${(hookTpl.hookSeconds || 2.5)} s`}><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
+            <Field label={`Title on the video, first ${(hookTpl.hookSeconds || 2.5)} s`}><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
           </div>
           <div className="insp-group">
             <div className="insp-head">Look<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></div>
@@ -198,7 +198,7 @@ export default function Reels({ nav, go }) {
               <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
               <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
             </div>
-            <span className="hint">Drag the captions or the picture in the preview to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
+            <span className="hint">Drag the captions or the picture to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "8px 10px" }}>
               <b style={{ fontSize: 13 }}>Apply to the queue</b>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>Scope</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>

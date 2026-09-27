@@ -30,12 +30,12 @@ export default function AddSource({ onClose, go }) {
     setBusy(true);
     let r;
     if (mode === "channel") {
-      r = await tryAct("add_channel", channel, "Channel added — checking it now");
+      r = await tryAct("add_channel", channel, "Channel added. Checking it now.");
       if (r) go("inbox");
     } else {
       const args = { language, transcriptSource, autoDetect, autoApproveScore: autoApprove ? Math.max(8, settings.autoApproveScore || 8) : 0 };
       if (mode === "url") args.url = url.trim(); else args.path = path.trim();
-      r = await tryAct("add_source", args, "Added — downloading");
+      r = await tryAct("add_source", args, "Added. Downloading.");
       if (r) go("library", { sourceId: r.id, view: "reels" });
     }
     setBusy(false);

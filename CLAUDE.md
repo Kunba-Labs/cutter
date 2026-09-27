@@ -28,6 +28,8 @@ bin/       dev (Cuttar Dev identity), smoke (end-to-end check on a scratch libra
 
 ```sh
 bin/dev                              # "Cuttar Dev" (com.cuttar.desktop.dev, port 47252) — the play identity
+bin/app-build ["string in binary"]   # release bundle that really embeds the current frontend (touches main.rs; cargo misses dist changes)
+bin/app-restart                      # relaunch the bundle once the queue is idle
 cd desktop && yarn install:app       # build, sign, install /Applications/Cuttar.app (com.cuttar.desktop, port 47251)
 cd desktop && yarn install:app:dev   # same for "Cuttar Dev"
 cargo test -p cuttar-core            # the tests that matter
@@ -71,4 +73,5 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - Tauri `dragDropEnabled` is false so the webview gets its own drops.
 - Release profile has no `lto` and no `strip`: on this toolchain (rustc 1.96, Xcode 27) `lto = true` corrupts proc-macro dylibs (darling, ctor: "mis-aligned LINKEDIT string pool", surfacing as E0463). `cargo clean --release` after changing the profile.
 - The desktop executable is `cuttar-desktop` (tauri.conf `mainBinaryName`), never `Cuttar`: on the case-insensitive disk that name overwrote `target/release/cuttar`, the CLI, and every CLI call launched a second app.
+- Verify a frontend change in `desktop/dist/assets/*.js`, never by grepping the binary: Tauri embeds the assets brotli-compressed. `bin/app-build "literal"` does that check. Edit scripts that assert on old text abort BEFORE writing; check the source (`git status`) before building.
 - Two processes must never write the same output file: cancel or wait for a job before queueing the same one with different args (`enqueue` only dedupes identical args).

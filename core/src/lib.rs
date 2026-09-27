@@ -53,6 +53,8 @@ pub struct Library {
     cancel: Mutex<HashSet<String>>,
     children: Mutex<HashMap<String, u32>>,
     active: Mutex<Vec<String>>,
+    /// Set by `shutdown`: no job is claimed any more; the process exits once the active ones finish.
+    draining: std::sync::atomic::AtomicBool,
 }
 
 impl Library {
@@ -69,6 +71,7 @@ impl Library {
             cancel: Mutex::new(HashSet::new()),
             children: Mutex::new(HashMap::new()),
             active: Mutex::new(Vec::new()),
+            draining: std::sync::atomic::AtomicBool::new(false),
         });
         std::fs::create_dir_all(lib.out_dir()).map_err(|e| e.to_string())?;
         posters::qr_script(data_dir);
@@ -191,6 +194,9 @@ impl Library {
     /// The oldest queued job this worker may take: one transcript at a time
     /// (the GPU), everything else in parallel. ponytail: a single lock, a scan.
     pub fn claim_job(&self) -> Option<Job> {
+        if self.draining.load(std::sync::atomic::Ordering::SeqCst) {
+            return None;
+        }
         let db = self.db.lock();
         let jobs: Vec<Job> = db.all("jobs").unwrap_or_default();
         let transcribing = jobs.iter().any(|j| j.status == "running" && j.kind == "transcribe");
@@ -838,6 +844,25 @@ impl Library {
                 st.youtube.channel_title.clear();
                 self.save_settings(&st);
                 json!(true)
+            }
+            "shutdown" => {
+                // Drain: claim nothing new, let the active jobs finish, then exit. Queued jobs resume at the next start.
+                self.draining.store(true, std::sync::atomic::Ordering::SeqCst);
+                let active = self.active.lock().len();
+                log::info!("shutdown requested: draining {active} active jobs");
+                let lib_active = std::sync::Arc::new(Mutex::new(()));
+                let _ = lib_active;
+                let wait = a["waitSeconds"].as_u64().unwrap_or(1800);
+                let me: &'static Library = unsafe { &*(self as *const Library) }; // the process exits from this thread; the Library outlives it
+                std::thread::spawn(move || {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait);
+                    while !me.active.lock().is_empty() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                    log::info!("shutdown: exiting");
+                    std::process::exit(0);
+                });
+                json!({ "draining": true, "active": active })
             }
             "mcp" => json!(self.mcp.get().map(|m| json!({ "url": m.url(), "token": m.token }))),
             "paths" => json!({ "dataDir": self.data_dir, "outDir": self.out_dir(), "log": self.data_dir.join("cuttar.log") }),

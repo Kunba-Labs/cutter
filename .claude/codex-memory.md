@@ -14,3 +14,8 @@
 - Tauri production configuration is `desktop/src-tauri/tauri.conf.json`; development overrides are in `tauri.dev.conf.json`.
 - Bundling targets macOS `app` and `dmg`, minimum macOS 13. Production and development use separate identities and `icons/` versus `icons-dev/`.
 - Both icon configurations reference `32x32.png`, `128x128.png`, `128x128@2x.png`, and `icon.icns`.
+- The desktop binary is `cuttar-desktop`. Its setup determines development identity from the `.dev` bundle identifier suffix.
+- Core endpoint defaults are port 47251 for production and 47252 for development; `CUTTAR_PORT` overrides them. `CUTTAR_DATA_DIR` overrides the data directory.
+- The CLI in `cli/src/main.rs` selects development defaults whenever `CUTTAR_DEV` is present and dispatches actions over authenticated loopback HTTP.
+- The `jobs` dispatch action returns all jobs; the UI snapshot limits job history to 300 entries. Active job statuses are `queued` and `running`.
+- The Cargo workspace contains `core`, `cli`, and `desktop/src-tauri`. Tauri runs `yarn build` before release compilation and embeds `desktop/dist`.

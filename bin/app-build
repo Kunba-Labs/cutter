@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Build the release bundle so it REALLY contains the current frontend.
+# Cargo does not notice a changed dist/ on its own: touch the file that embeds it.
+# usage: bin/app-build [literal string that must be in the built frontend]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+touch desktop/src-tauri/src/main.rs
+(cd desktop && yarn -s tauri build --bundles app 2>&1 | grep -E "Bundling|^error" | tail -1)
+# The embedded assets are brotli-compressed inside the binary, so the check reads the
+# built dist instead: it is what the bundle step just embedded.
+if [ -n "${1:-}" ]; then
+  cat desktop/dist/assets/*.js | /usr/bin/grep -Fq -- "$1" || { echo "dist lacks: $1" >&2; exit 1; }
+  echo "dist has: $1"
+fi

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Relaunch the production bundle without breaking work in flight: ask the app to
+# drain (no new jobs, active ones finish, then it exits), wait for that one
+# process to go, then open the new bundle. Only the instance on PORT is touched.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PORT=${CUTTAR_PORT:-47251}
+export CUTTAR_PORT=$PORT
+unset CUTTAR_DEV
+PID=$(lsof -tiTCP:"$PORT" -sTCP:LISTEN || true)
+if [ -n "$PID" ]; then
+  # Drain through the app; an older build without `shutdown` is stopped once its queue is idle.
+  if ! ~/.local/bin/cuttar shutdown waitSeconds=3600 >/dev/null 2>&1; then
+    until [ "$(~/.local/bin/cuttar jobs | python3 -c 'import sys,json; print(sum(1 for j in json.load(sys.stdin) if j["status"] in ("queued","running")))')" = "0" ]; do sleep 15; done
+    kill "$PID"
+  fi
+  until ! kill -0 "$PID" 2>/dev/null; do sleep 5; done
+fi
+open target/release/bundle/macos/Cuttar.app; sleep 4
+curl -s -o /dev/null -w "restarted, health %{http_code}\n" "http://127.0.0.1:$PORT/health"

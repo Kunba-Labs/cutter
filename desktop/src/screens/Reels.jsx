@@ -20,6 +20,17 @@ export default function Reels({ nav, go }) {
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [hold, setHold] = useState(false);
+  const [editSeg, setEditSeg] = useState(null); // { index, text } while a caption line is being corrected in place
+  const [pick, setPick] = useState(null); // { seg, word } chosen in the words strip
+  useEffect(() => setPick(null), [c?.id]);
+  const refreshSeg = (r, index) => setDetail((d) => d && { ...d, transcript: { ...d.transcript, segments: d.transcript.segments.map((g, i) => (i === index ? r : g)) } });
+  const saveSeg = async () => {
+    if (!editSeg) return;
+    const r = await tryAct("edit_segment", { id: sourceId, index: editSeg.index, text: editSeg.text }, "Line corrected");
+    if (r) refreshSeg(r, editSeg.index);
+    setEditSeg(null);
+  };
+  const editCurrent = () => { const v = video.current; if (v && !v.paused) { v.pause(); setPlaying(false); } const i = segs.findIndex((g) => t >= g.start && t < g.end); if (i >= 0) setEditSeg({ index: i, text: segs[i].text }); };
   const [applyScope, setApplyScope] = useState("source");
   const [applyKeys, setApplyKeys] = useState(["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
@@ -55,6 +66,7 @@ export default function Reels({ nav, go }) {
     const onKey = (e) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
       if (e.key === " ") { e.preventDefault(); toggle(); }
+      if (e.key === "Enter" && !editSeg) { e.preventDefault(); editCurrent(); }
       if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); const i = cands.findIndex((v) => v.id === c?.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }
       if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); const i = cands.findIndex((v) => v.id === c?.id); setSelId(cands[Math.max(0, i - 1)]?.id); }
       if (e.key === "a" && c) { tryAct("approve", { ids: [c.id], approved: !c.approved }); if (!c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }
@@ -113,7 +125,7 @@ export default function Reels({ nav, go }) {
   const onCapDown = (e) => {
     e.stopPropagation(); e.preventDefault();
     const now = Date.now();
-    if (now - lastCapDown.current < 350) { lastCapDown.current = 0; go("library", { sourceId, view: "transcript", seek: t }); return; }
+    if (now - lastCapDown.current < 350) { lastCapDown.current = 0; editCurrent(); return; }
     lastCapDown.current = now;
     e.currentTarget.setPointerCapture(e.pointerId); setCapDrag({ y0: e.clientY, h: frameH, pct0: capPct, pct: capPct, moved: false });
   };
@@ -128,7 +140,10 @@ export default function Reels({ nav, go }) {
   const trans = c.translation?.find((g) => t >= g.start && t < g.end);
   // One caption language: the translation replaces the spoken words when a language is set and the reel has one.
   const translated = !!s.settings.translateTo && s.settings.translateTo !== (detail?.transcript?.language || "") && (c.translation?.length || 0) > 0;
-  const inWords = segs.filter((g) => g.end > c.start - 5 && g.start < c.end + 5).flatMap((g) => g.words?.length ? g.words : [{ w: g.text, s: g.start, e: g.end }]);
+  const inWords = segs.flatMap((g, gi) => (g.end > c.start - 5 && g.start < c.end + 5) ? (g.words?.length ? g.words.map((w, wi) => ({ ...w, gi, wi })) : g.text.split(/\s+/).map((w, wi, a) => ({ w, s: g.start + ((g.end - g.start) * wi) / a.length, e: g.start + ((g.end - g.start) * (wi + 1)) / a.length, gi, wi }))) : []);
+  // The word in the sidebar: the picked one, else the one under the playhead.
+  const current = pick ? inWords.find((w) => w.gi === pick.seg && w.wi === pick.word) : inWords.find((w) => t >= w.s && t < w.e);
+  const currentSeg = current ? segs[current.gi] : null;
   const snapEnd = () => { const g = segs.find((g) => g.start <= c.end && g.end >= c.end) || segs.filter((g) => g.end <= c.end).pop(); if (g) patch({ end: Math.min(g.end + 0.2, c.start + s.settings.maxReelS) }); };
   const renders = s.renders.filter((r) => r.candidateId === c.id && r.status === "done");
   const ticked = cands.filter((v) => v.approved).length;
@@ -169,6 +184,7 @@ export default function Reels({ nav, go }) {
               {hold && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {hookTpl.hook !== false && c.hook && t - c.start < (hookTpl.hookSeconds || 2.5) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {(translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(tpl, k), fontSize: (tpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e && (tpl.highlight || "").toLowerCase() !== (tpl.textColor || "#ffffff").toLowerCase() ? { color: tpl.highlight } : undefined}>{w.w} </span>)}</span></div>}
+              {editSeg && <div style={{ position: "absolute", left: 12, right: 12, bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, zIndex: 3 }} onPointerDown={(e) => e.stopPropagation()}><textarea className="input" autoFocus rows={2} value={editSeg.text} onChange={(e) => setEditSeg({ ...editSeg, text: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveSeg(); } if (e.key === "Escape") setEditSeg(null); }} onBlur={saveSeg} style={{ fontSize: 14, textAlign: "center", background: "rgba(20,23,35,.92)", borderColor: "var(--accent)" }} /><div className="hint" style={{ textAlign: "center", marginTop: 4, color: "#fff", textShadow: "0 1px 3px #000" }}>Enter saves, Escape cancels. Same word count keeps the timing.</div></div>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
@@ -178,7 +194,7 @@ export default function Reels({ nav, go }) {
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.max(0, i - 1)]?.id); }} aria-label="Previous">{I.prev}</Btn>
             <Btn icon primary onClick={toggle} aria-label="Play">{playing ? I.pause : I.play}</Btn>
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }} aria-label="Next">{I.next}</Btn>
-            <span className="muted">loops the reel · drag the picture to move the crop · drag the captions to move them{c.captionPct != null && <> · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset caption position</a></>}</span><span className="grow" /><span className="muted">Space plays. Arrows switch reels. [ and ] set in and out. A ticks.</span>
+            <Btn small onClick={editCurrent} disabled={!segs.length} title="Enter">Edit line</Btn><span className="muted">Loops the reel. Drag the picture or the captions to place them.</span><span className="grow" /><span className="muted">Space plays. Arrows switch reels. [ and ] set in and out. A ticks.</span>
           </div>
         </div>
         <Panel title="Trim" sub={`in ${fmt(c.start)} · out ${fmt(c.end)} · ${dur.toFixed(1)} s`} right={<><Btn small onClick={snapEnd}>Snap out to sentence</Btn><Btn small onClick={() => patch({ start: Math.max(0, t) })}>In = playhead</Btn><Btn small onClick={() => patch({ end: Math.max(c.start + 3, t) })}>Out = playhead</Btn></>} style={{ height: 150, flexShrink: 0 }}>
@@ -187,7 +203,7 @@ export default function Reels({ nav, go }) {
             <span className="sel" style={{ left: `${(5 / (dur + 10)) * 100}%`, width: `${(dur / (dur + 10)) * 100}%` }} />
             <span className="cur" style={{ left: `${((t - c.start + 5) / (dur + 10)) * 100}%` }} />
           </div>
-          <div className="words">{inWords.map((w, i) => <span key={i} className={t >= w.s && t < w.e ? "cur" : w.s >= c.start - 0.05 && w.e <= c.end + 0.05 ? "in" : ""} onClick={(e) => { if (e.altKey) patch({ start: w.s }); else if (e.shiftKey) patch({ end: w.e }); else seek(w.s); }} title="Click to jump. Option-click sets the start, Shift-click the end.">{w.w}</span>)}</div>
+          <div className="words">{inWords.map((w, i) => <span key={i} className={(pick ? pick.seg === w.gi && pick.word === w.wi : t >= w.s && t < w.e) ? "cur" : w.s >= c.start - 0.05 && w.e <= c.end + 0.05 ? "in" : ""} onClick={(e) => { if (e.altKey) patch({ start: w.s }); else if (e.shiftKey) patch({ end: w.e }); else { setPick({ seg: w.gi, word: w.wi }); seek(w.s); } }} title="Click to pick the word and jump to it. Option-click sets the start, Shift-click the end.">{w.w}</span>)}</div>
         </Panel>
       </div>
 
@@ -195,6 +211,16 @@ export default function Reels({ nav, go }) {
         <div className="panel-head"><span>Reel</span><span className="grow" /><Cat id={c.category} style={{ color: "var(--sec)" }} /><select className="input" style={{ width: 110, height: 22, fontSize: 12, padding: "0 6px" }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{CAT_NAMES[k]}</option>)}</select><span className="score" style={{ height: 22 }}>score <input type="number" min="1" max="10" value={c.score} onChange={(e) => patch({ score: +e.target.value })} style={{ width: 28, background: "none", border: 0, color: "inherit", font: "inherit", textAlign: "center", padding: 0, marginLeft: 4 }} /></span></div>
         <div className="panel-body" style={{ gap: 12 }}>
           {c.why && <span className="muted" style={{ lineHeight: 1.45, fontStyle: "italic" }}>{c.why}</span>}
+          <div className="insp-group">
+            <div className="insp-head">Words<span className="grow" />{pick && <a href="#" onClick={(e) => { e.preventDefault(); setPick(null); }}>follow the playhead</a>}</div>
+            {current ? (
+              <>
+                <Field label={`Word · ${fmt(current.s)}`}><Text value={current.w} onCommit={async (v) => { const r = await tryAct("edit_word", { id: sourceId, index: current.gi, word: current.wi, text: v }, "Word corrected"); if (r) refreshSeg(r, current.gi); }} /></Field>
+                <Field label="Its line"><Text area rows={3} value={currentSeg?.text || ""} onCommit={async (v) => { const r = await tryAct("edit_segment", { id: sourceId, index: current.gi, text: v }, "Line corrected"); if (r) refreshSeg(r, current.gi); }} /></Field>
+                <span className="hint">Click a word in the strip to pick it. Same word count keeps the timing.</span>
+              </>
+            ) : <span className="hint">Play, or click a word in the strip below the preview.</span>}
+          </div>
           <div className="insp-group">
             <div className="insp-head">Text</div>
             <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>

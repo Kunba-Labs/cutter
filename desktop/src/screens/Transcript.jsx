@@ -6,6 +6,14 @@ export default function Transcript({ nav, go }) {
   const s = useStore();
   const x = s.sources.find((v) => v.id === nav.sourceId);
   const [detail, setDetail] = useState(null);
+  const [editing, setEditing] = useState(null); // { index, text }
+  const lastClick = useRef({ i: -1, t: 0 });
+  const saveEdit = async () => {
+    if (!editing) return;
+    const r = await tryAct("edit_segment", { id: x.id, index: editing.index, text: editing.text }, "Line corrected");
+    if (r) setDetail((d) => d && { ...d, transcript: { ...d.transcript, segments: d.transcript.segments.map((g, i) => (i === editing.index ? r : g)) } });
+    setEditing(null);
+  };
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const video = useRef(null);
@@ -14,6 +22,15 @@ export default function Transcript({ nav, go }) {
   const cands = s.candidates.filter((c) => c.sourceId === nav.sourceId);
 
   useEffect(() => { if (nav.sourceId) act("source", { id: nav.sourceId }).then(setDetail).catch(() => setDetail(null)); }, [nav.sourceId, x?.stage, x?.updatedAt]);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+      if (e.key === "Enter" && !editing && cur >= 0) { e.preventDefault(); if (video.current && !video.current.paused) { video.current.pause(); setPlaying(false); } setEditing({ index: cur, text: segs[cur].text }); }
+      if (e.key === " ") { e.preventDefault(); toggle(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   useEffect(() => {
     let raf;
     const tick = () => { if (video.current) setT(video.current.currentTime); raf = requestAnimationFrame(tick); };
@@ -58,13 +75,17 @@ export default function Transcript({ nav, go }) {
       </div>
       <div className="col" style={{ width: 540, flexShrink: 0 }}>
         <div className="panel grow">
-          <div className="panel-head"><span className="grow">Transcript</span><span className="sub">{detail?.transcript ? `${detail.transcript.engine} · ${segs.length} segments` : "none yet"}</span><Btn small onClick={() => tryAct("polish", { id: x.id, thenDetect: false }, "Claude is proofreading")} disabled={!detail?.transcript || !!s.jobs.find((j) => j.refId === x.id && j.kind === "polish" && (j.status === "running" || j.status === "queued"))} title="Fixes clear errors word for word. Timings stay.">Polish</Btn><Btn small onClick={() => detail?.transcript && tryAct("open", { path: x.folder + "/transcript.srt" })} disabled={!detail?.transcript}>Open .srt</Btn></div>
+          <div className="panel-head"><span>Transcript</span><span className="sub">double-click a line, or press Enter, to correct it</span><span className="grow" /><span className="sub">{detail?.transcript ? `${detail.transcript.engine} · ${segs.length} segments` : "none yet"}</span><Btn small onClick={() => { if (cur >= 0) { if (video.current && !video.current.paused) { video.current.pause(); setPlaying(false); } setEditing({ index: cur, text: segs[cur].text }); } }} disabled={cur < 0} title="Enter">Edit line</Btn><Btn small onClick={() => tryAct("polish", { id: x.id, thenDetect: false }, "Claude is proofreading")} disabled={!detail?.transcript || !!s.jobs.find((j) => j.refId === x.id && j.kind === "polish" && (j.status === "running" || j.status === "queued"))} title="Fixes clear errors word for word. Timings stay.">Polish</Btn><Btn small onClick={() => detail?.transcript && tryAct("open", { path: x.folder + "/transcript.srt" })} disabled={!detail?.transcript}>Open .srt</Btn></div>
           <div className="scroll" style={{ padding: "6px 0", fontSize: 13.5 }}>
             {!segs.length && <div className="empty">{x.stage === "transcribing" ? "Transcribing…" : "No transcript yet."}</div>}
             {segs.map((g, i) => { const c = candAt(g); return (
-              <div key={i} className={`transcript-line ${i === cur ? "on" : ""}`} onClick={() => seek(g.start)} style={c ? { boxShadow: "inset 3px 0 0 var(--accent)" } : undefined}>
+              <div key={i} className={`transcript-line ${i === cur ? "on" : ""}`} onClick={() => { if (editing) return; const now = Date.now(); if (lastClick.current.i === i && now - lastClick.current.t < 400) { lastClick.current = { i: -1, t: 0 }; setEditing({ index: i, text: g.text }); return; } lastClick.current = { i, t: now }; seek(g.start); }} style={c ? { boxShadow: "inset 3px 0 0 var(--accent)" } : undefined} title="Double-click, or Enter, to correct">
                 <span className="t">{fmtLong(g.start)}</span>
-                <span>{i === cur ? words(g) : g.text}{c && i === segs.findIndex((h) => candAt(h)?.id === c.id) && <span className="pink" style={{ fontSize: 12.5, fontWeight: 600 }}> ■ {c.title} · score {c.score}</span>}</span>
+                {editing?.index === i ? (
+                  <input className="input" autoFocus value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })} onBlur={saveEdit} onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setEditing(null); }} style={{ height: 26 }} />
+                ) : (
+                  <span>{i === cur ? words(g) : g.text}{c && i === segs.findIndex((h) => candAt(h)?.id === c.id) && <span className="pink" style={{ fontSize: 12.5, fontWeight: 600 }}> ■ {c.title} · score {c.score}</span>}</span>
+                )}
               </div>
             ); })}
           </div>

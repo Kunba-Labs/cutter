@@ -77,6 +77,7 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("use_end_cards", "Use a poster's end cards on every render: enabled, seconds.", r#"{"id":{"type":"string"},"enabled":{"type":"boolean"},"seconds":{"type":"number"}}"#, "id", "use_end_cards"),
     ("waiting_video", "Render the 'starting soon' loops (16:9 and 9:16) plus break/ended stills from the chosen poster. startAt RFC 3339 for the countdown.", r#"{"id":{"type":"string"},"startAt":{"type":"string"},"lines":{"type":"array","items":{"type":"string"}},"loopS":{"type":"integer"},"countdown":{"type":"boolean"}}"#, "id", "waiting_video"),
     ("settings", "Read settings, or change them with patch.", r#"{"patch":{"type":"object"}}"#, "", "settings"),
+    ("shutdown", "Drain and quit the app: no new jobs start, active ones finish, then it exits (queued work resumes next start).", r#"{"waitSeconds":{"type":"integer"}}"#, "", "shutdown"),
     ("dispatch", "Escape hatch: any core action by name with raw args (see the app's action list).", r#"{"action":{"type":"string"},"args":{"type":"object"}}"#, "action", "*"),
 ];
 

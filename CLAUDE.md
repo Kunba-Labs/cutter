@@ -57,6 +57,12 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - **Posters follow the tafsir-flyer recipe**: 3 variants per run, palette history to avoid
   repeats, blank white panel → real QR pasted and decoded locally. Generation runs `claude -p`
   with the Higgsfield MCP already in Claude Code; the app holds no Higgsfield key.
+- **Quality before speed.** yt-dlp takes the best stream YouTube has (any resolution, VP9/AV1;
+  AAC audio when offered). Renders use x264 `slow` crf 16 by default (`settings.render_quality`:
+  best | good | fast) at the source frame rate, capped at 60. A source the in-app player cannot
+  play (VP9, AV1, above 1080p, Opus) gets `preview.mp4`, a 1080p H.264 copy; the UI plays
+  `previewPath || videoPath`, renders read the original. `redownload` refetches and keeps
+  transcript, reels and edits (old file parked as `source.prev.mp4` until the new one lands).
 - **Design language**: panels on #1A1D2A with 26 px header strips, magenta #F52ACB the only
   action colour, mint = done, coral = failed. No stat tiles, no caps labels, no pill nav.
 

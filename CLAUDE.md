@@ -63,6 +63,11 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   play (VP9, AV1, above 1080p, Opus) gets `preview.mp4`, a 1080p H.264 copy; the UI plays
   `previewPath || videoPath`, renders read the original. `redownload` refetches and keeps
   transcript, reels and edits (old file parked as `source.prev.mp4` until the new one lands).
+- **Covers are chosen, not taken at +1 s.** The first render of a reel tiles nine numbered frames
+  of the cut (`ffmpeg::cover_sheet`), the brain reads the sheet (both claude and ollama take a file
+  path in the prompt) and answers `{"frame": n}`. The time lands on `candidate.cover_t`; other
+  formats reuse it, a later render job of the same reel waits instead of asking again. The sheet
+  stays beside the reel as `cover-sheet.jpg`. Fallback on any error: one second in.
 - **Design language**: panels on #1A1D2A with 26 px header strips, magenta #F52ACB the only
   action colour, mint = done, coral = failed. No stat tiles, no caps labels, no pill nav.
 

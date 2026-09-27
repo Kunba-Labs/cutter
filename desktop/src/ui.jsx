@@ -114,3 +114,15 @@ export const Speed = ({ value, onChange }) => (
     {SPEEDS.map((v) => <button key={v} type="button" className={v === value ? "on" : ""} onClick={() => onChange(v)}>{v}×</button>)}
   </div>
 );
+
+/** Right-click menu. `at` is { x, y }; items are { label, onClick, danger, disabled }. Closes on any click, Escape or scroll. */
+export function Menu({ at, items, onClose }) {
+  useEffect(() => {
+    const off = () => onClose();
+    const key = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("pointerdown", off); window.addEventListener("keydown", key); window.addEventListener("scroll", off, true); window.addEventListener("blur", off);
+    return () => { window.removeEventListener("pointerdown", off); window.removeEventListener("keydown", key); window.removeEventListener("scroll", off, true); window.removeEventListener("blur", off); };
+  }, [onClose]);
+  const x = Math.min(at.x, window.innerWidth - 200), y = Math.min(at.y, window.innerHeight - items.length * 28 - 12);
+  return <div className="menu" style={{ left: x, top: y }} onPointerDown={(e) => e.stopPropagation()}>{items.map((it, i) => <button key={i} className={`menu-item ${it.danger ? "danger" : ""}`} disabled={it.disabled} onClick={() => { onClose(); it.onClick(); }}>{it.label}</button>)}</div>;
+}

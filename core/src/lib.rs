@@ -588,6 +588,18 @@ impl Library {
                 let j: Job = self.get("jobs", &id).ok_or("no such job")?;
                 json!(self.enqueue(&j.kind, &j.ref_id, &j.label, j.args.clone()))
             }
+            "remove_job" => {
+                // Drops one job, failed or not. A live one is cancelled first.
+                let id = id()?;
+                if let Some(j) = self.get::<Job>("jobs", &id) {
+                    if matches!(j.status.as_str(), "running" | "queued") {
+                        self.cancel_job(&id);
+                    }
+                }
+                let _ = self.db.lock().delete("jobs", &id);
+                self.changed();
+                json!(true)
+            }
             "clear_jobs" => {
                 let n = self.db.lock().delete_where::<Job>("jobs", |j| matches!(j.status.as_str(), "done" | "cancelled" | "failed")).unwrap_or(0);
                 self.changed();
@@ -866,7 +878,11 @@ impl Library {
             "paths" => json!({ "dataDir": self.data_dir, "outDir": self.out_dir(), "log": self.data_dir.join("cuttar.log") }),
             "open" => {
                 let p = s("path").ok_or("path required")?;
-                let _ = std::process::Command::new("open").arg(if a["reveal"].as_bool().unwrap_or(false) { "-R" } else { "" }).arg(&p).spawn();
+                let mut cmd = std::process::Command::new("open");
+                if a["reveal"].as_bool().unwrap_or(false) {
+                    cmd.arg("-R");
+                }
+                let _ = cmd.arg(&p).spawn();
                 json!(true)
             }
             "search" => {

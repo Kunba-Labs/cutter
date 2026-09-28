@@ -177,6 +177,7 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 .day-head { height: 24px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; background: var(--head); font-size: 13px; color: var(--text-2); font-weight: 600; flex-shrink: 0; }
 .day.today .day-head { background: var(--sel); color: var(--accent-text); }
 .day-body { padding: 6px; display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-height: 60px; }
+.tiffany-text { color: var(--tiffany-text); }
 .post.dragging { opacity: .4; }
 .cal-wrap { display: flex; flex-direction: column; flex-grow: 1; min-height: 0; }
 .cal-heads { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--rule); }
@@ -193,7 +194,7 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 .post-peek-empty { width: 200px; height: 120px; display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--bg); border-radius: 4px; }
 .drag-ghost { position: fixed; z-index: 40; pointer-events: none; padding: 4px 8px; border-radius: 3px; background: var(--head); border: 1px solid var(--tiffany); font-size: 12.5px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 6px 18px rgba(0, 0, 0, .4); }
 .post { display: flex; flex-direction: column; gap: 2px; padding: 5px 6px; border-radius: 3px; background: var(--bg); border: 1px solid var(--cyan); font-size: 12.5px; cursor: pointer; }
-.post.confirmed { border-color: var(--accent); } .post.posted { border-color: var(--mint); } .post.failed { border-color: var(--coral); } .post.on { background: var(--sel); }
+.post.confirmed { border-color: var(--accent); } .post.posted { border-color: var(--mint); } .post.scheduled { border-color: var(--tiffany); } .post.failed { border-color: var(--coral); } .post.on { background: var(--sel); }
 .post .t { display: flex; justify-content: space-between; font-weight: 700; color: var(--sec); font-variant-numeric: tabular-nums; }
 .variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 10px; }
 .variant { display: flex; flex-direction: column; gap: 6px; cursor: pointer; }

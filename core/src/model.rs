@@ -163,7 +163,8 @@ pub struct Candidate {
     /// Background music: "random" | "none" | a track id. None = settings.music.
     #[serde(default)]
     pub music: Option<String>,
-    /// Music level (0..1, before it ducks under speech). None = settings.music_volume.
+    /// Music level against the speech (0..1: 1 = as loud as the speaker, 0.1 = 20 dB under), before
+    /// it ducks. None = settings.music_volume.
     #[serde(default)]
     pub music_volume: Option<f64>,
     /// Loudness of the finished reel in LUFS. None = settings.loudness.
@@ -441,6 +442,8 @@ pub struct Track {
     pub status: String,
     pub path: Option<String>,
     pub error: Option<String>,
+    /// Integrated loudness of the track (LUFS), so its level can be set against the speech.
+    pub lufs: Option<f64>,
     pub added_at: String,
 }
 

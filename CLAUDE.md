@@ -67,7 +67,12 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   (additions picked up, removals respected). Per reel `music` = random | none | track id (random is
   a stable hash of the reel id, same in `store.js randomTrack`), `music_volume`; it loops, fades,
   ducks under speech (sidechaincompress). Everything is normalised last to `loudness` (default −11
-  LUFS, per reel overridable). The clean cut gets no music. Without an end card the music plays on
+  LUFS, per reel overridable). The clean cut gets no music. Music level = dB under the speech
+  (`ffmpeg::music_gain`): every lecture (`source.meta.lufs`) and track (`track.lufs`) is measured once
+  (download, music job, or the `loudness` job queued at startup), tracks here span −24 to −10 LUFS.
+  The preview normalises too: a Web Audio gain per element (`store.js audioGain`) brings speech to
+  −16 LUFS and sets the music against it; media is read crossOrigin, so `media://` answers CORS
+  preflights; on a refusal the player remounts without CORS and plays unnormalised. Without an end card the music plays on
   `music_tail` s (last frame held, fading to black; `Plan.tail`); with one it plays under the card.
 - **End card** = poster cards (`use_end_cards`) or any picture (`end_card_image`): centred on
   `end_card.background` or on its own blur; `image`/`background` are kept so a colour change remakes

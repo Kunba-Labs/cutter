@@ -87,6 +87,11 @@ impl Library {
         std::fs::create_dir_all(lib.out_dir()).map_err(|e| e.to_string())?;
         posters::qr_script(data_dir);
         ffmpeg::install_fonts(&data_dir.join("fonts"));
+        // Lectures and tracks from before loudness was measured get measured once.
+        let unmeasured = lib.all::<Source>("sources").iter().any(|x| x.meta.get("lufs").is_none() && x.video_path.is_some()) || lib.all::<Track>("tracks").iter().any(|t| t.status == "ready" && t.lufs.is_none());
+        if unmeasured {
+            lib.enqueue("loudness", "library", "Measuring loudness", json!({}));
+        }
         // A job that was running when the app quit goes back to the queue.
         for mut j in lib.all::<Job>("jobs") {
             if j.status == "running" {

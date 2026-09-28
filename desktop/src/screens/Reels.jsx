@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, reelTrack, useSpeed, setSpeed, toast } from "../store.js";
+import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, reelTrack, useSpeed, setSpeed, toast, audioGain, resumeAudio, dbGain, levelDb, PREVIEW_LUFS } from "../store.js";
 import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, Grip, Menu } from "../ui.jsx";
 import { captionCss, hookCss, litCss } from "./Style.jsx";
 
@@ -49,6 +49,11 @@ export default function Reels({ nav, go }) {
   const [logoDrag, setLogoDrag] = useState(null);
   const [logoAspect, setLogoAspect] = useState(1);
   const [askOver, setAskOver] = useState(false);
+  // The player reads media CORS-clean so the preview can normalise its sound; false after a refusal.
+  const [cors, setCors] = useState(true);
+  // Where the player was when a CORS refusal made it remount, so the new element picks up there.
+  const resume = useRef(null);
+  const noCors = () => { if (!cors) return; resume.current = video.current?.currentTime ?? null; setCors(false); };
   const [leftW, setLeftW] = useSize("reels.left", 320);
   const [rightW, setRightW] = useSize("reels.right", 340, 260, 700);
   const [trimH, setTrimH] = useSize("reels.trim", 178, 120, 480);
@@ -139,7 +144,7 @@ export default function Reels({ nav, go }) {
   const tpl = (s.settings.captionTemplates || []).find((x) => x.name === c.style) || s.settings.captionStyle || {};
   const hookTpl = (s.settings.captionTemplates || []).find((x) => x.name === c.hookStyle) || tpl;
   // Play from the reel's start (or from outside the strip) begins with the teaser; anywhere else resumes there.
-  const toggle = () => { const v = video.current; if (!v) return; if (v.paused) { if (!teaser.current && (Math.abs(v.currentTime - c.start) < 0.3 || v.currentTime < c.start - CTX || v.currentTime > c.end + CTX)) fromTop(v); v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); } };
+  const toggle = () => { const v = video.current; if (!v) return; resumeAudio(); if (v.paused) { if (!teaser.current && (Math.abs(v.currentTime - c.start) < 0.3 || v.currentTime < c.start - CTX || v.currentTime > c.end + CTX)) fromTop(v); v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); } };
   const seek = (time) => { teaser.current = false; setTeasing(false); if (video.current) video.current.currentTime = Math.min(c.end + CTX, Math.max(Math.max(0, c.start - CTX), time)); };
   const hasPunch = c.punchStart != null && c.punchEnd != null;
   const introOn = hasPunch && (c.introOn ?? s.settings.intro ?? true);
@@ -216,7 +221,16 @@ export default function Reels({ nav, go }) {
   const busyPunch = s.jobs.some((j) => j.kind === "punchline" && j.refId === c.id && (j.status === "queued" || j.status === "running"));
   const track = reelTrack(s.tracks || [], s.settings, c);
   const musicVol = c.musicVolume ?? s.settings.musicVolume ?? 0.3;
-  if (music.current) music.current.volume = Math.min(1, musicVol);
+  // Normalised preview: the speech at PREVIEW_LUFS whatever the recording, the music set against it.
+  // Without a CORS-clean graph (cors false) the elements play as they are, music by its level only.
+  const speechL = x.meta?.lufs, trackL = track?.lufs;
+  const speechGain = speechL != null ? Math.min(16, dbGain(PREVIEW_LUFS - speechL)) : 1;
+  const musicGain = musicVol * (speechL != null && trackL != null ? dbGain(speechL - trackL) : 1) * speechGain;
+  if (cors) {
+    const vg = audioGain(video.current), mg = audioGain(music.current);
+    if (vg) vg.gain.value = speechGain;
+    if (mg) mg.gain.value = musicGain;
+  } else if (music.current) music.current.volume = Math.min(1, musicGain / speechGain);
   // The logo on this reel: its own place when dragged, else the library's.
   const L = s.settings.logo || {};
   const logoOn = !!L.path && (c.logo?.on ?? L.enabled);
@@ -287,14 +301,14 @@ export default function Reels({ nav, go }) {
           </div>}
           <div className="stage" ref={stageRef}>
             <div className={`frame${flash ? ` tx-${flash}` : ""}`} style={{ width: frameW, height: frameH, cursor: zoomW > frameW + 1 || zoomH > frameH + 1 ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-              {x.videoPath && <video ref={video} key={x.meta?.fileAt || x.id} src={fileUrl(x.previewPath || x.videoPath, x.meta?.fileAt)} onError={(e) => toast(`The player can\u2019t read this video (error ${e.currentTarget.error?.code ?? "?"}). Try Import again in the Library.`, "err")} style={{ left, top, width: zoomW, height: zoomH, pointerEvents: "none" }} muted={false} />}
+              {x.videoPath && <video ref={video} key={`${x.meta?.fileAt || x.id}-${cors}`} crossOrigin={cors ? "anonymous" : undefined} src={fileUrl(x.previewPath || x.videoPath, x.meta?.fileAt)} onLoadedMetadata={(e) => { e.currentTarget.playbackRate = speed; if (resume.current != null) { e.currentTarget.currentTime = resume.current; resume.current = null; } }} onError={(e) => cors ? noCors() : toast(`The player can\u2019t read this video (error ${e.currentTarget.error?.code ?? "?"}). Try Import again in the Library.`, "err")} style={{ left, top, width: zoomW, height: zoomH, pointerEvents: "none" }} muted={false} />}
               {hold === "tail" && <div className="tail-fade" style={{ animationDuration: `${s.settings.musicTail ?? 3}s` }} />}
               {hold === "card" && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {c.titleOn !== false && hookTpl.hook !== false && c.hook && (teasing || (!introOn && t >= c.start - 0.3 && t - c.start < (hookTpl.hookSeconds || 2.5))) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {c.captionsOn !== false && (translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(capTpl, k), fontSize: (capTpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e ? litCss(tpl) : undefined}>{w.w} </span>)}</span></div>}
               {logoOn && (hold !== "card" || L.onEndCard) && <img src={fileUrl(L.path)} alt="" draggable={false} onLoad={(e) => setLogoAspect(e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight))} onPointerDown={onLogoDown} onPointerMove={onLogoMove} onPointerUp={onLogoUp} onPointerCancel={onLogoUp} title="Drag to place the logo on this reel" style={{ position: "absolute", left: (frameW - lw) * lx, top: (frameH - lh) * ly, width: lw, height: lh, opacity: L.opacity ?? 1, cursor: logoDrag ? "grabbing" : "move", zIndex: 3 }} />}
               {(flash === "flash" || flash === "fade") && <div className={`teaser-flash ${flash}`} />}
-              {track && <audio ref={music} key={track.id} src={fileUrl(track.path)} loop style={{ display: "none" }} />}
+              {track && <audio ref={music} key={`${track.id}-${cors}`} crossOrigin={cors ? "anonymous" : undefined} src={fileUrl(track.path)} loop onError={noCors} style={{ display: "none" }} />}
               {teasing && <span className="teaser-badge">teaser</span>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
@@ -378,7 +392,8 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
     <>
       {tab === "text" && <div className="insp-group">
         <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
-        <Field label={`Title on the video, first ${(hookTpl.hookSeconds || 2.5)} s`}><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
+        <Check label={`Title on the video, first ${(hookTpl.hookSeconds || 2.5)} s`} checked={c.titleOn !== false} onChange={(v) => patch({ titleOn: v })} />
+        <Text value={c.hook} disabled={c.titleOn === false} onCommit={(v) => patch({ hook: v })} placeholder="2 to 5 words" />
         <Field label="Cover line"><Text area rows={2} value={c.coverTitle || ""} onCommit={async (v) => { await patch({ coverTitle: v }); tryAct("covers", { candidateIds: [c.id] }); }} placeholder="Written with the cover pick. Tells the reel's story in one or two lines." /></Field>
         <Btn small style={{ alignSelf: "flex-start" }} onClick={() => tryAct("pick_cover", { id: c.id }, "Choosing a new cover")} title="Picks the cover frame again and renders this reel again.">New cover</Btn>
         <span className="hint">Words are corrected in the strip under the trim: double-click a word, or right-click for the whole line. That changes the lecture's transcript.</span>
@@ -391,7 +406,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
             <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
             <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
           </div>
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}><Check label="Captions on the video" checked={c.captionsOn !== false} onChange={(v) => patch({ captionsOn: v })} /><Check label="Title on the video" checked={c.titleOn !== false} onChange={(v) => patch({ titleOn: v })} /></div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}><Check label="Captions on the video" checked={c.captionsOn !== false} onChange={(v) => patch({ captionsOn: v })} /></div>
           <span className="hint">Drag the captions or the picture to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
         </div>
         <div className="insp-group">
@@ -434,7 +449,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
               {ready.map((t) => <option key={t.id} value={t.id}>{t.title}{t.duration ? ` · ${fmtLong(t.duration)}` : ""}</option>)}
             </select></Field>
             {!ready.length && <span className="hint">No tracks yet. Add a YouTube video or playlist under Settings › Music.</span>}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Music level</span><input type="range" className="slider" min="0" max="1" step="0.05" value={c.musicVolume ?? s.settings.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num muted" style={{ width: 70 }}>{Math.round((c.musicVolume ?? s.settings.musicVolume ?? 0.3) * 100)}%{c.musicVolume == null ? " default" : ""}</span>{c.musicVolume != null && <a href="#" onClick={(e) => { e.preventDefault(); patch({ musicVolume: null }); }}>reset</a>}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Music level</span><input type="range" className="slider" min="0" max="1" step="0.05" value={c.musicVolume ?? s.settings.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num muted" style={{ width: 96 }} title="How far under the speaker the music sits (before it ducks while he speaks)">{levelDb(c.musicVolume ?? s.settings.musicVolume ?? 0.3)} dB{c.musicVolume == null ? " default" : ""}</span>{c.musicVolume != null && <a href="#" onClick={(e) => { e.preventDefault(); patch({ musicVolume: null }); }}>reset</a>}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Loudness</span><select className="input" value={c.loudness ?? ""} onChange={(e) => patch({ loudness: e.target.value === "" ? null : +e.target.value })}><option value="">Default · {LOUDNESS.find(([v]) => v === (s.settings.loudness ?? -11))?.[1] || `${s.settings.loudness} LUFS`}</option>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
             <span className="hint">The music ducks under the speaker in the render. <a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>Music sources</a>.</span>
           </>;

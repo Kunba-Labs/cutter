@@ -57,6 +57,7 @@ fn run(lib: &Library, job: &Job) -> Result<Value, String> {
         "polish" => polish(lib, job),
         "punchline" => punchline(lib, job),
         "music" => music(lib, job),
+        "loudness" => loudness(lib, job),
         "render" => render(lib, job),
         "publish" => publish(lib, job),
         "check_channel" => check_channel(lib, job),
@@ -276,6 +277,9 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
         src.meta["fps"] = json!(probe.fps);
         src.meta["vcodec"] = json!(probe.vcodec);
         src.meta["kbps"] = json!(probe.kbps);
+        // How loud the speaker is: background music is set against it.
+        lib.job_progress(&job.id, 0.99, "measuring loudness");
+        src.meta["lufs"] = json!(ffmpeg::lufs(&video));
         // Changes whenever the file is rewritten, so the in-app player reloads instead of keeping the old one.
         src.meta["fileAt"] = json!(now());
         // The file must be a real video: a size, a length, something to hear when expected.
@@ -446,6 +450,7 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let out = dir.join(format!("{format}.mp4"));
     // The clean cut stays bare: no music either.
     let track = if format == "clean" { None } else { reel_music(lib, &s, &c) };
+    let track_path = track.as_ref().and_then(|t| t.path.clone()).map(PathBuf::from);
     let pl = plan(&s, &c, src.duration, &format, track.is_some());
     let (start, end) = (pl.start, pl.end);
     let clean = format == "clean";
@@ -474,7 +479,8 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let has_audio = src.meta["hasAudio"].as_bool().unwrap_or_else(|| ffmpeg::probe(&video).map(|p| p.has_audio).unwrap_or(true));
     let intro = pl.intro.as_ref().map(|(a, b, tr)| ffmpeg::Intro { start: *a, end: *b, ass: intro_ass.as_deref(), transition: tr });
     let logo = pl.logo.as_ref().map(|(p, x, y, size, opacity, on_card)| ffmpeg::LogoSpec { path: p, x: *x, y: *y, size: *size, opacity: *opacity, on_card: *on_card });
-    let music = track.as_deref().map(|p| (p, c.music_volume.unwrap_or(s.music_volume)));
+    // The level is against the speech: the lecture's and the track's measured loudness set the gain.
+    let music = track_path.as_deref().map(|p| (p, ffmpeg::music_gain(c.music_volume.unwrap_or(s.music_volume), src.meta["lufs"].as_f64(), track.as_ref().and_then(|t| t.lufs))));
     let res = ffmpeg::render(
         &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: ass.as_deref(), intro, logo, end_card, music, tail: pl.tail, music_on_card: s.end_card.music, loudness: c.loudness.unwrap_or(s.loudness), has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
         |p, m| lib.job_progress(&jid, p, m),
@@ -876,6 +882,14 @@ fn music(lib: &Library, job: &Job) -> Result<Value, String> {
         t = now;
         match res {
             Ok(p) => {
+                let lufs = ffmpeg::lufs_with(&p, |pid| lib.register_child(&job.id, pid));
+                // Removed while it was measured: same as removed while it downloaded.
+                let Some(now) = lib.get::<Track>("tracks", &t.id) else {
+                    let _ = std::fs::remove_file(&p);
+                    continue;
+                };
+                t = now;
+                t.lufs = lufs;
                 t.path = Some(p.display().to_string());
                 t.status = "ready".into();
                 t.error = None;
@@ -894,7 +908,7 @@ fn music(lib: &Library, job: &Job) -> Result<Value, String> {
 }
 
 /// The reel's background track: its own pick, a stable random one (same reel, same track), or none.
-pub fn reel_music(lib: &Library, s: &Settings, c: &Candidate) -> Option<PathBuf> {
+pub fn reel_music(lib: &Library, s: &Settings, c: &Candidate) -> Option<Track> {
     let choice = c.music.clone().unwrap_or_else(|| s.music.clone());
     let mut ready: Vec<Track> = lib.all::<Track>("tracks").into_iter().filter(|t| t.status == "ready" && t.path.as_ref().map(|p| Path::new(p).exists()).unwrap_or(false)).collect();
     ready.sort_by(|a, b| a.id.cmp(&b.id));
@@ -903,5 +917,38 @@ pub fn reel_music(lib: &Library, s: &Settings, c: &Candidate) -> Option<PathBuf>
         "random" => (!ready.is_empty()).then(|| ready[c.id.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize)) % ready.len()].clone()),
         id => ready.into_iter().find(|t| t.id == id),
     };
-    t.and_then(|t| t.path).map(PathBuf::from)
+    t
+}
+
+/// Measures what has no loudness yet: lectures (for the music level) and tracks.
+fn loudness(lib: &Library, job: &Job) -> Result<Value, String> {
+    let mut n = 0;
+    for mut src in lib.all::<Source>("sources").into_iter().filter(|x| x.meta.get("lufs").is_none() && x.video_path.as_ref().is_some_and(|p| Path::new(p).exists())) {
+        if lib.cancelled(&job.id) {
+            return Err("cancelled".into());
+        }
+        lib.job_progress(&job.id, 0.1, &format!("measuring {}", src.title));
+        let v = ffmpeg::lufs_with(Path::new(src.video_path.as_ref().unwrap()), |pid| lib.register_child(&job.id, pid));
+        // Re-read: the lecture may have changed while it was measured.
+        if let Some(mut now) = lib.get::<Source>("sources", &src.id) {
+            now.meta["lufs"] = json!(v);
+            src = now;
+            lib.save_source(&mut src);
+            n += 1;
+        }
+    }
+    for t in lib.all::<Track>("tracks").into_iter().filter(|t| t.status == "ready" && t.lufs.is_none()) {
+        let Some(p) = t.path.clone().filter(|p| Path::new(p).exists()) else { continue };
+        if lib.cancelled(&job.id) {
+            return Err("cancelled".into());
+        }
+        let v = ffmpeg::lufs_with(Path::new(&p), |pid| lib.register_child(&job.id, pid));
+        if let Some(mut now) = lib.get::<Track>("tracks", &t.id) {
+            now.lufs = v;
+            lib.put("tracks", &now.id.clone(), &format!("{}-{}", now.list_url, now.added_at), &now);
+            n += 1;
+        }
+    }
+    lib.changed();
+    Ok(json!({ "message": format!("{n} measured") }))
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore, tryAct, fileUrl, fmtLong, FORMATS, TRANSITIONS, LOUDNESS } from "../store.js";
+import { useStore, tryAct, fileUrl, fmtLong, FORMATS, TRANSITIONS, LOUDNESS, levelDb } from "../store.js";
 import { Panel, Btn, Check, Text, Seg, Dot, Brand, Confirm, I, useSize, Grip } from "../ui.jsx";
 
 const SECTIONS = [["general", "General"], ["engines", "Engines"], ["channels", "Channels"], ["captions", "Captions"], ["music", "Music"], ["posters", "Posters"], ["mcp", "Claude and terminal"]];
@@ -161,7 +161,7 @@ function Music({ s, st, patch }) {
       <Panel title="Background music" sub={`${tracks.filter((t) => t.status === "ready").length} of ${tracks.length} tracks ready${fetching ? " · downloading" : ""}`}>
         <Row label="Add a link"><input className="input" style={{ width: 420 }} value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="YouTube video or playlist, e.g. …watch?v=…&list=…" /><Btn primary disabled={busy || !url.trim()} onClick={add}>{busy ? "Reading…" : "Add"}</Btn></Row>
         <Row label="Every reel gets"><Seg value={st.music || "random"} onChange={(v) => patch({ music: v })} options={[["random", "A random track"], ["none", "No music"]]} /><span className="hint">Random is stable: the same reel keeps its track. Pick one per reel on the Reels screen.</span></Row>
-        <Row label="Music level"><input type="range" className="slider" style={{ width: 200 }} min="0" max="1" step="0.05" value={st.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num" style={{ width: 40 }}>{Math.round((st.musicVolume ?? 0.3) * 100)}%</span><span className="hint">It ducks under the speaker by itself.</span></Row>
+        <Row label="Music level"><input type="range" className="slider" style={{ width: 200 }} min="0" max="1" step="0.05" value={st.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num" style={{ width: 56 }}>{levelDb(st.musicVolume ?? 0.3)} dB</span><span className="hint">under the speaker, whatever the track or the recording. It ducks further while he speaks.</span></Row>
         <Row label="Music after the reel"><input className="input num" type="number" min="0" max="10" step="0.5" style={{ width: 64 }} value={st.musicTail ?? 3} onChange={(e) => patch({ musicTail: Math.max(0, +e.target.value) })} /><span className="hint">seconds the last frame fades out while the music plays on, when a reel has no end card. 0 is off.</span></Row>
         <Row label="Reel loudness"><select className="input" style={{ width: 180 }} value={st.loudness ?? -11} onChange={(e) => patch({ loudness: +e.target.value })}>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><span className="hint">Every render is normalised to this. Per reel on the Reels screen.</span></Row>
       </Panel>

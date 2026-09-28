@@ -76,6 +76,31 @@ pub fn quality_issues(p: &Probe, width: i64, height: i64, seconds: f64, want_aud
     v
 }
 
+/// Integrated loudness (EBU R128, LUFS) of a file's audio; None when it has none or ffmpeg fails.
+pub fn lufs(path: &Path) -> Option<f64> {
+    lufs_with(path, |_| {})
+}
+
+/// Same, handing the ffmpeg pid to `on_spawn` so a job can kill a long measurement.
+pub fn lufs_with(path: &Path, on_spawn: impl FnOnce(u32)) -> Option<f64> {
+    let child = Command::new(crate::tools::ffmpeg_bin()).args(["-hide_banner", "-nostats", "-vn"]).arg("-i").arg(path).args(["-af", "ebur128", "-f", "null", "-"]).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().ok()?;
+    on_spawn(child.id());
+    let out = child.wait_with_output().ok()?;
+    let err = String::from_utf8_lossy(&out.stderr);
+    err.lines().rev().find_map(|l| l.trim().strip_prefix("I:")).and_then(|v| v.trim().trim_end_matches("LUFS").trim().parse::<f64>().ok()).filter(|v| v.is_finite() && *v > -70.0)
+}
+
+/// The amplitude for background music: `level` against the speech (1 = as loud as the speaker,
+/// 0.1 = 20 dB under), corrected by how loud the track and the speech really are. Unknown loudness
+/// on either side leaves the level as a plain gain.
+pub fn music_gain(level: f64, speech_lufs: Option<f64>, track_lufs: Option<f64>) -> f64 {
+    let fit = match (speech_lufs, track_lufs) {
+        (Some(s), Some(t)) => 10f64.powf((s - t) / 20.0),
+        _ => 1.0,
+    };
+    (level.max(0.0) * fit).min(8.0)
+}
+
 /// Facts of a file for the UI: size, fps, codec, bitrate, length.
 pub fn info_json(p: &Probe, path: &Path) -> serde_json::Value {
     let mb = std::fs::metadata(path).map(|m| m.len() as f64 / 1_048_576.0).unwrap_or(0.0);
@@ -371,7 +396,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
             let len = if r.music_on_card { total } else { total - card_s };
             let mk = input(&mut cmd, vec!["-stream_loop".into(), "-1".into(), "-t".into(), format!("{len:.3}"), "-i".into(), track.display().to_string()]);
             fc.push(format!("[{a}]asplit=2[sp][sc]"));
-            fc.push(format!("[{mk}:a]{pcm},volume={:.3},afade=t=in:d=0.6,afade=t=out:st={:.3}:d=1.2[mu]", vol.clamp(0.0, 1.5), (len - 1.2).max(0.0)));
+            fc.push(format!("[{mk}:a]{pcm},volume={:.4},afade=t=in:d=0.6,afade=t=out:st={:.3}:d=1.2[mu]", vol.clamp(0.0, 8.0), (len - 1.2).max(0.0)));
             fc.push("[mu][sc]sidechaincompress=threshold=0.03:ratio=5:attack=40:release=600[duck]".into());
             fc.push("[sp][duck]amix=inputs=2:duration=first:normalize=0[mx]".into());
             a = "mx".into();
@@ -658,6 +683,15 @@ mod tests {
         let want = total_seconds(2.0, 6.0, Some((8.0, 10.0, "swoosh")), 1.0);
         assert!((p.duration - want).abs() < 0.3, "{} vs {want}", p.duration);
         assert!(p.has_audio && p.width == 1080);
+    }
+
+    #[test]
+    fn music_sits_under_the_speech() {
+        // A -16 LUFS nasheed under -32 LUFS speech at 10 %: 16 dB down to match, 20 dB more under.
+        let g = music_gain(0.1, Some(-32.0), Some(-16.0));
+        assert!((20.0 * g.log10() - (-36.0)).abs() < 0.01);
+        assert_eq!(music_gain(0.3, None, Some(-16.0)), 0.3);
+        assert_eq!(music_gain(5.0, Some(0.0), Some(-60.0)), 8.0);
     }
 
     #[test]

@@ -138,6 +138,25 @@ export const CATS = ["fact", "statement", "hook", "story", "dua", "reminder", "q
    (captions::FIXED_FONTS in the core). */
 export const FONTS = ["Helvetica Neue", "Avenir Next", "Avenir Next Condensed", "Futura", "Gill Sans", "DIN Condensed", "Arial Black", "Impact", "Montserrat ExtraBold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Lilita One", "SF Pro Rounded", "Rockwell", "American Typewriter", "Georgia", "Baskerville", "Didot", "Menlo", "Geeza Pro"];
 export const FIXED_FONTS = ["Montserrat ExtraBold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Lilita One", "Arial Black", "Impact"];
+/* The preview's loudness: speech brought to PREVIEW_LUFS from the lecture's measured loudness, and the
+   music set against the speech the way the render does (ffmpeg::music_gain). A Web Audio gain can boost
+   a quiet recording, which element.volume (at most 1) cannot. One graph per media element. */
+export const PREVIEW_LUFS = -16;
+let audioCtx = null;
+const graphs = new WeakMap();
+export function audioGain(el) {
+  if (!el) return null;
+  try {
+    audioCtx ||= new AudioContext();
+    if (!graphs.has(el)) { const g = audioCtx.createGain(); audioCtx.createMediaElementSource(el).connect(g).connect(audioCtx.destination); graphs.set(el, g); }
+    return graphs.get(el);
+  } catch { return null; }
+}
+export const resumeAudio = () => { try { audioCtx?.resume(); } catch {} };
+export const dbGain = (db) => Math.pow(10, db / 20);
+/* Music level as dB under the speech: 1 = as loud, 0.1 = −20 dB. */
+export const levelDb = (level) => (level > 0 ? Math.round(20 * Math.log10(level)) : -Infinity);
+
 /* Loudness presets, LUFS. Platforms play at about −14 and turn louder files down. */
 export const LOUDNESS = [[-14, "Standard (−14)"], [-11, "Louder (−11)"], [-9, "Loudest (−9)"]];
 /* The track a reel's "random" lands on: the core's pick (pipeline::reel_music), same hash. */

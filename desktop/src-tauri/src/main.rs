@@ -73,7 +73,14 @@ fn main() {
 fn media_response(req: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     const CAP: u64 = 64 * 1024 * 1024;
-    let reply = |status: u16| tauri::http::Response::builder().status(status).header("Access-Control-Allow-Origin", "*").header("Accept-Ranges", "bytes");
+    // CORS-clean for the preview's audio graph (the player reads it with crossOrigin="anonymous"):
+    // a Range request is preflighted, and the preflight must say Range is fine.
+    let reply = |status: u16| {
+        tauri::http::Response::builder().status(status).header("Access-Control-Allow-Origin", "*").header("Access-Control-Allow-Headers", "Range").header("Access-Control-Allow-Methods", "GET, OPTIONS").header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges").header("Accept-Ranges", "bytes")
+    };
+    if req.method() == tauri::http::Method::OPTIONS {
+        return reply(204).body(Vec::new()).unwrap();
+    }
     let path = pct_decode(req.uri().path().trim_start_matches('/'));
     let home = std::env::var("HOME").unwrap_or_default();
     if home.is_empty() || !path.starts_with(&format!("{home}/")) || path.contains("/../") {

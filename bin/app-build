@@ -9,6 +9,7 @@ touch desktop/src-tauri/src/main.rs
 # The embedded assets are brotli-compressed inside the binary, so the check reads the
 # built dist instead: it is what the bundle step just embedded.
 if [ -n "${1:-}" ]; then
-  cat desktop/dist/assets/*.js | /usr/bin/grep -Fq -- "$1" || { echo "dist lacks: $1" >&2; exit 1; }
+  # grep reads the files itself: `cat | grep -q` under pipefail fails when grep stops early on a match.
+  /usr/bin/grep -Fq -- "$1" desktop/dist/assets/*.js || { echo "dist lacks: $1" >&2; exit 1; }
   echo "dist has: $1"
 fi

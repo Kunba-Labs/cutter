@@ -55,8 +55,14 @@ export default function Reels({ nav, go }) {
         if (m) {
           if (v.paused) { if (!m.paused) m.pause(); }
           else {
-            const want = Math.max(0, v.currentTime - c.start) % (m.duration || 1e9);
-            if (Math.abs(m.currentTime - want) > 0.4) m.currentTime = want;
+            // Follow the video loosely: same speed, and a correction only past a second of drift and
+            // never while a seek is still landing. Re-seeking every frame (a seek here takes longer
+            // than the old 0.4 s tolerance) kept the track seeking forever: one second of sound, then none.
+            if (m.playbackRate !== v.playbackRate) m.playbackRate = v.playbackRate;
+            const len = m.duration || 1e9;
+            const want = Math.max(0, v.currentTime - c.start) % len;
+            const off = Math.abs(m.currentTime - want);
+            if (!m.seeking && Math.min(off, len - off) > 1) m.currentTime = want;
             if (m.paused) m.play().catch(() => {});
           }
         }

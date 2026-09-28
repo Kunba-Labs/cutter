@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore, tryAct, fileUrl, ago } from "../store.js";
-import { Panel, Btn, Check, Text, Dot, Seg, I, Brand, CHANNEL_NAMES, useSize, Grip } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Dot, Seg, I, Brand, CHANNEL_NAMES, useSize, Grip, Confirm } from "../ui.jsx";
 
 const CH = [["youtube", "YouTube Shorts"], ["instagram", "Instagram Reels"], ["tiktok", "TikTok"], ["facebook", "Facebook"]];
 const dayKey = (d) => d.toISOString().slice(0, 10);
@@ -39,6 +39,11 @@ export default function Publish({ go }) {
   const post = s.posts.find((p) => p.id === selId);
   const monday = new Date(); monday.setHours(0, 0, 0, 0); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + week * 7);
   const days = [...Array(7)].map((_, i) => { const d = new Date(monday); d.setDate(d.getDate() + i); return d; });
+  // The planned posts of the week on screen, for "Confirm week".
+  const weekKeys = days.map((d) => localKey(d.toISOString()));
+  const weekPlanned = s.posts.filter((p) => p.status === "planned" && weekKeys.includes(localKey(p.scheduledAt)));
+  const [askWeek, setAskWeek] = useState(false);
+  const confirmWeek = async () => { setAskWeek(false); let n = 0; for (const p of weekPlanned) if ((await tryAct("confirm", { id: p.id })) != null) n++; tryAct("snapshot", {}, `Confirmed ${n} post${n === 1 ? "" : "s"}`); };
   const todayKey = localKey(new Date().toISOString());
   const cand = (p) => s.candidates.find((c) => c.id === p.candidateId);
   const render = (p) => s.renders.find((r) => r.id === p.renderId);
@@ -66,7 +71,8 @@ export default function Publish({ go }) {
       <Grip value={sz0} set={setsz0} dir={1} reset={260} />
       <div className="col grow">
         <div className="panel grow">
-          <div className="panel-head"><span>Calendar</span><span className="sub">{days[0].toLocaleDateString([], { day: "numeric", month: "short" })} – {days[6].toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}</span><span className="grow" /><Seg value={view} onChange={setView} options={[["week", "Week"], ["list", "List"]]} /><Btn small icon onClick={() => setWeek(week - 1)} aria-label="Previous week">{I.prev}</Btn><Btn small onClick={() => setWeek(0)}>Today</Btn><Btn small icon onClick={() => setWeek(week + 1)} aria-label="Next week">{I.next}</Btn></div>
+          {askWeek && <Confirm text={`Confirm ${weekPlanned.length} planned post${weekPlanned.length === 1 ? "" : "s"} for ${days[0].toLocaleDateString([], { day: "numeric", month: "short" })} – ${days[6].toLocaleDateString([], { day: "numeric", month: "short" })}? YouTube ones upload now and go live at their time.`} yes="Confirm all" no="Not yet" onYes={confirmWeek} onNo={() => setAskWeek(false)} />}
+          <div className="panel-head"><span>Calendar</span><span className="sub">{days[0].toLocaleDateString([], { day: "numeric", month: "short" })} – {days[6].toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}</span><span className="grow" /><Btn small primary disabled={!weekPlanned.length} onClick={() => setAskWeek(true)} title="Confirm every planned post of this week">Confirm week{weekPlanned.length ? ` · ${weekPlanned.length}` : ""}</Btn><Seg value={view} onChange={setView} options={[["week", "Week"], ["list", "List"]]} /><Btn small icon onClick={() => setWeek(week - 1)} aria-label="Previous week">{I.prev}</Btn><Btn small onClick={() => setWeek(0)}>Today</Btn><Btn small icon onClick={() => setWeek(week + 1)} aria-label="Next week">{I.next}</Btn></div>
           {view === "week" ? (
             <div className="cal-wrap">
               <div className="cal-heads"><div style={{ width: GUTTER, flexShrink: 0 }} />{days.map((d) => { const k = localKey(d.toISOString()); return <div key={k} className={`day-head ${k === todayKey ? "today" : ""}`}><span>{d.toLocaleDateString([], { weekday: "short" })}</span><span style={{ fontWeight: 500 }}>{d.getDate()}</span></div>; })}</div>

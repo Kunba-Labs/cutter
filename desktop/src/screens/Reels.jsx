@@ -1,12 +1,19 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, reelTrack, useSpeed, setSpeed, toast } from "../store.js";
-import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, Grip } from "../ui.jsx";
+import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, Grip, Menu } from "../ui.jsx";
 import { captionCss, hookCss, litCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
 // Seconds of lecture shown around the reel in the trim strip, so an edge can be pushed outwards.
 const CTX = 15;
 const RTL = ["ar", "ur", "fa", "he", "ps", "sd"];
+// A word or a line corrected in place in the words strip: Enter keeps it, Escape leaves it, empty drops a word.
+const Inline = ({ value, onDone, area }) => {
+  const Tag = area ? "textarea" : "input";
+  return <Tag autoFocus className={`input inline-edit ${area ? "line" : ""}`} defaultValue={value} size={area ? undefined : Math.max(3, value.length + 1)} rows={area ? 2 : undefined}
+    onFocus={(e) => e.currentTarget.select()} onBlur={(e) => onDone(e.currentTarget.value.trim())}
+    onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { e.currentTarget.value = value; e.currentTarget.blur(); } else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }} />;
+};
 const formatName = (f) => (f === "clean" ? "Clean" : FORMATS.find(([v]) => v === f)?.[1] || f);
 
 export default function Reels({ nav, go }) {
@@ -24,9 +31,13 @@ export default function Reels({ nav, go }) {
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [hold, setHold] = useState(false);
-  const [pick, setPick] = useState(null); // { seg, word } chosen in the words strip
-  useEffect(() => setPick(null), [c?.id]);
+  const [edit, setEdit] = useState(null); // { gi, wi } a word, { gi } a whole line, edited in the words strip
+  const [wordMenu, setWordMenu] = useState(null);
+  useEffect(() => setEdit(null), [c?.id]);
+  useEffect(() => { if (edit) { video.current?.pause(); setPlaying(false); } }, [edit]);
   const refreshSeg = (r, index) => setDetail((d) => d && { ...d, transcript: { ...d.transcript, segments: d.transcript.segments.map((g, i) => (i === index ? r : g)) } });
+  const [tab, setTab] = useState("text");
+  const [teaserOpen, setTeaserOpen] = useState(false);
   const [applyScope, setApplyScope] = useState("source");
   const [applyKeys, setApplyKeys] = useState(["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
@@ -175,11 +186,9 @@ export default function Reels({ nav, go }) {
   // One caption language: the translation replaces the spoken words when a language is set and the reel has one.
   const translated = !!s.settings.translateTo && s.settings.translateTo !== (detail?.transcript?.language || "") && (c.translation?.length || 0) > 0;
   const inWords = segs.flatMap((g, gi) => (g.end > c.start - CTX && g.start < c.end + CTX) ? (g.words?.length ? g.words.map((w, wi) => ({ ...w, gi, wi })) : g.text.split(/\s+/).map((w, wi, a) => ({ w, s: g.start + ((g.end - g.start) * wi) / a.length, e: g.start + ((g.end - g.start) * (wi + 1)) / a.length, gi, wi }))) : []);
-  // The word in the sidebar: the picked one, else the one under the playhead.
-  const current = pick ? inWords.find((w) => w.gi === pick.seg && w.wi === pick.word) : inWords.find((w) => t >= w.s && t < w.e);
-  const currentSeg = current ? segs[current.gi] : null;
+  const editWord = async (w, v) => { setEdit(null); if (v === w.w) return; const r = await tryAct("edit_word", { id: sourceId, index: w.gi, word: w.wi, text: v }, "Word corrected"); if (r) refreshSeg(r, w.gi); };
+  const editLine = async (gi, v) => { setEdit(null); if (v === segs[gi]?.text) return; const r = await tryAct("edit_segment", { id: sourceId, index: gi, text: v }, "Line corrected"); if (r) refreshSeg(r, gi); };
   const snapEnd = () => { const g = segs.find((g) => g.start <= c.end && g.end >= c.end) || segs.filter((g) => g.end <= c.end).pop(); if (g) patch({ end: Math.min(g.end + 0.2, c.start + s.settings.maxReelS) }); };
-  const renders = s.renders.filter((r) => r.candidateId === c.id && r.status === "done");
   // The trim strip spans the reel and CTX seconds either side (never before 0).
   const ra = Math.max(0, c.start - CTX), rb = c.end + CTX;
   const pct = (time) => ((time - ra) / (rb - ra)) * 100;
@@ -192,10 +201,8 @@ export default function Reels({ nav, go }) {
   const nudge = (edge, d) => patch(edge === "start" ? { start: Math.max(0, +(c.start + d).toFixed(2)) } : { end: +Math.max(c.start + 3, c.end + d).toFixed(2) });
   // The teaser's words, from the transcript between its times.
   const wordsIn = (a, b) => inWords.filter((w) => w.s >= a - 0.05 && w.e <= b + 0.05).map((w) => w.w).join(" ");
-  // Handed to the memoised inspector as one stable ref: the playhead and the teaser setter, read on click.
-  const live = useRef({});
   const setPunch = (a, b) => { if (b - a < 0.8) { toast("A teaser needs at least a second", "err"); return; } patch({ punchStart: +a.toFixed(2), punchEnd: +b.toFixed(2), punchline: wordsIn(a, b), introOn: true }); };
-  live.current = { t, setPunch };
+  const busyPunch = s.jobs.some((j) => j.kind === "punchline" && j.refId === c.id && (j.status === "queued" || j.status === "running"));
   const track = reelTrack(s.tracks || [], s.settings, c);
   const musicVol = c.musicVolume ?? s.settings.musicVolume ?? 0.3;
   if (music.current) music.current.volume = Math.min(1, musicVol);
@@ -220,7 +227,7 @@ export default function Reels({ nav, go }) {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, color: "var(--sec)" }}>{CATS.map((k) => { const n = cands.filter((v) => v.category === k).length; return n ? <span key={k} style={{ display: "flex", alignItems: "center", gap: 4 }} title={CAT_NAMES[k]}><Cat id={k} /><span className="num">{n}</span></span> : null; })}</div>
         </div>
         <div className="cands">
-          {cands.filter((v) => v.score >= minScore).map((v) => (
+          {cands.filter((v) => v.score >= minScore || v.id === c.id).map((v) => (
             <div key={v.id} className={`cand ${v.id === c.id ? "on" : ""} ${v.discarded ? "off" : ""}`} onClick={() => setSelId(v.id)} title={`${CAT_NAMES[v.category] || v.category} · ${v.why || ""}`}>
               <input type="checkbox" checked={v.approved} onChange={(e) => tryAct("approve", { ids: [v.id], approved: e.target.checked })} onClick={(e) => e.stopPropagation()} style={{ accentColor: "var(--accent)", margin: 0 }} />
               <span className="score">{v.score}</span>
@@ -230,6 +237,15 @@ export default function Reels({ nav, go }) {
           ))}
         </div>
         <span className="grow" />
+        <div className="cand-detail">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Cat id={c.category} style={{ color: "var(--sec)" }} />
+            <select className="input" style={{ height: 22, fontSize: 12, padding: "0 6px", width: 120 }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{CAT_NAMES[k]}</option>)}</select>
+            <span className="grow" />
+            <span className="score" style={{ height: 22 }}>score <input type="number" min="1" max="10" value={c.score} onChange={(e) => patch({ score: +e.target.value })} style={{ width: 28, background: "none", border: 0, color: "inherit", font: "inherit", textAlign: "center", padding: 0, marginLeft: 4 }} /></span>
+          </div>
+          {c.why && <span className="muted" style={{ lineHeight: 1.45, fontStyle: "italic" }}>{c.why}</span>}
+        </div>
         <div className="panel-foot" style={{ flexWrap: "wrap" }}>
           <Btn primary className="grow" style={{ flexBasis: "100%" }} disabled={!ticked} onClick={async () => { const r = await tryAct("render", { sourceId }, `Rendering ${ticked} reels`); if (r) go("queue"); }}>Render {ticked} ticked · {ticked * ((s.settings.formats?.length || 3) + 1)} files</Btn>
           <select className="input" style={{ width: 76 }} value={s.settings.targetReelS || 60} onChange={(e) => tryAct("settings", { patch: { targetReelS: +e.target.value, maxReelS: Math.round(+e.target.value * 1.5) } })} title="Length the reel finder aims for. A thought that closes sooner stays shorter; one that needs more may run to 1.5×.">{[20, 30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>~{n} s</option>)}</select>
@@ -243,6 +259,21 @@ export default function Reels({ nav, go }) {
       <div className="col grow">
         <div className="panel grow">
           <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><Speed value={speed} onChange={setSpeed} /><span className="sub" style={{ marginLeft: 8 }}>zoom</span><input type="range" className="slider" style={{ width: 120 }} min="1" max="2.5" step="0.05" value={cz} onChange={(e) => setZoom(+e.target.value)} title="Zoom the crop window" /><span className="num sub" style={{ width: 36 }}>{cz.toFixed(2)}×</span></div>
+          <div className="teaser-bar">
+            <Check label="Teaser" checked={introOn} disabled={!hasPunch} onChange={(v) => patch({ introOn: v })} />
+            {hasPunch ? <span className="ell" title={c.punchline}>“{c.punchline || "…"}” <span className="muted num">{(c.punchEnd - c.punchStart).toFixed(1)} s</span></span> : <span className="muted ell">No punchline yet. Ask Claude, or right-click a word in the strip.</span>}
+            <span className="grow" />
+            <Btn small disabled={busyPunch} onClick={() => tryAct("punchline", { id: c.id }, "Claude is picking the punchline")}>{busyPunch ? "Asking…" : hasPunch ? "Ask again" : "Ask Claude"}</Btn>
+            <Btn small className={teaserOpen ? "on" : ""} onClick={() => setTeaserOpen(!teaserOpen)} aria-expanded={teaserOpen}>Edit {teaserOpen ? "▴" : "▾"}</Btn>
+          </div>
+          {teaserOpen && <div className="teaser-bar">
+            <Btn small onClick={() => setPunch(t, hasPunch && c.punchEnd > t + 0.8 ? c.punchEnd : t + 3)}>Start = playhead</Btn>
+            <Btn small disabled={!hasPunch} onClick={() => setPunch(c.punchStart, t)}>End = playhead</Btn>
+            {hasPunch && <span className="muted num">{fmt(c.punchStart)} → {fmt(c.punchEnd)}</span>}
+            <span className="grow" />
+            <span className="muted">Transition</span>
+            <select className="input" style={{ width: 150, height: 22 }} value={c.transition || ""} onChange={(e) => patch({ transition: e.target.value || null })}><option value="">Default · {TRANSITIONS.find(([v]) => v === (s.settings.transition || "swoosh"))?.[1]}</option>{TRANSITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          </div>}
           <div className="stage" ref={stageRef}>
             <div className="frame" style={{ width: frameW, height: frameH, cursor: zoomW > frameW + 1 || zoomH > frameH + 1 ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
               {x.videoPath && <video ref={video} key={x.meta?.fileAt || x.id} src={fileUrl(x.previewPath || x.videoPath, x.meta?.fileAt)} onError={(e) => toast(`The player can\u2019t read this video (error ${e.currentTarget.error?.code ?? "?"}). Try Import again in the Library.`, "err")} style={{ left, top, width: zoomW, height: zoomH, pointerEvents: "none" }} muted={false} />}
@@ -257,7 +288,7 @@ export default function Reels({ nav, go }) {
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             </div>
-            <div style={{ position: "absolute", right: 16, top: 12, display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: "var(--muted)", alignItems: "flex-end" }}><span>source {fmt(c.start)} → {fmt(c.end)}</span><span className={dur > s.settings.maxReelS ? "coral" : "mint"}>{dur.toFixed(1)} s · aim {s.settings.targetReelS || 60} · max {s.settings.maxReelS}</span>{renders.map((r) => <a key={r.id} href="#" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>{r.format}.mp4 ▸</a>)}</div>
+            <div style={{ position: "absolute", right: 16, top: 12, display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: "var(--muted)", alignItems: "flex-end" }}><span>source {fmt(c.start)} → {fmt(c.end)}</span><span className={dur > s.settings.maxReelS ? "coral" : "mint"}>{dur.toFixed(1)} s · aim {s.settings.targetReelS || 60} · max {s.settings.maxReelS}</span></div>
           </div>
           <div className="transport">
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.max(0, i - 1)]?.id); }} aria-label="Previous">{I.prev}</Btn>
@@ -282,32 +313,36 @@ export default function Reels({ nav, go }) {
             {hasPunch && <span className="punch" style={{ left: `${pct(c.punchStart)}%`, width: `${pct(c.punchEnd) - pct(c.punchStart)}%` }} title={`Teaser: ${c.punchline || ""}`} />}
             <span className="cur" style={{ left: `${pct(t)}%` }} />
           </div>
-          <div className="words">{inWords.map((w, i) => <span key={i} className={`${(pick ? pick.seg === w.gi && pick.word === w.wi : t >= w.s && t < w.e) ? "cur" : w.s >= c.start - 0.05 && w.e <= c.end + 0.05 ? "in" : ""}${hasPunch && w.s >= c.punchStart - 0.05 && w.e <= c.punchEnd + 0.05 ? " punch" : ""}`} onClick={(e) => { if (e.metaKey && e.shiftKey) setPunch(c.punchStart ?? w.s, w.e); else if (e.metaKey) setPunch(w.s, Math.max(w.e, c.punchEnd != null && c.punchEnd > w.s ? c.punchEnd : w.e + 2)); else if (e.altKey) patch({ start: w.s }); else if (e.shiftKey) patch({ end: w.e }); else { setPick({ seg: w.gi, word: w.wi }); seek(w.s); } }} title="Click: pick the word and jump to it. Option-click: reel start. Shift-click: reel end. Cmd-click: teaser start. Cmd-Shift-click: teaser end.">{w.w}</span>)}</div>
+          <div className="words">{inWords.map((w, i) => {
+            if (edit && edit.wi == null && edit.gi === w.gi) return inWords[i - 1]?.gi === w.gi ? null : <Inline key={i} area value={segs[w.gi]?.text || ""} onDone={(v) => editLine(w.gi, v)} />;
+            if (edit && edit.gi === w.gi && edit.wi === w.wi) return <Inline key={i} value={w.w} onDone={(v) => editWord(w, v)} />;
+            return <span key={i} className={`${inWords[i - 1] && inWords[i - 1].gi !== w.gi ? "ls " : ""}${t >= w.s && t < w.e ? "cur" : w.s >= c.start - 0.05 && w.e <= c.end + 0.05 ? "in" : ""}${hasPunch && w.s >= c.punchStart - 0.05 && w.e <= c.punchEnd + 0.05 ? " punch" : ""}`}
+              onClick={(e) => { if (e.metaKey && e.shiftKey) setPunch(c.punchStart ?? w.s, w.e); else if (e.metaKey) setPunch(w.s, Math.max(w.e, c.punchEnd != null && c.punchEnd > w.s ? c.punchEnd : w.e + 2)); else if (e.altKey) patch({ start: w.s }); else if (e.shiftKey) patch({ end: w.e }); else seek(w.s); }}
+              onDoubleClick={() => setEdit({ gi: w.gi, wi: w.wi })}
+              onContextMenu={(e) => { e.preventDefault(); setWordMenu({ x: e.clientX, y: e.clientY, w }); }}
+              title="Click: jump. Double-click: correct the word. Right-click: more.">{w.w}</span>;
+          })}</div>
+          {wordMenu && <Menu at={wordMenu} onClose={() => setWordMenu(null)} items={[
+            { label: "Correct this word", onClick: () => setEdit({ gi: wordMenu.w.gi, wi: wordMenu.w.wi }) },
+            { label: "Correct the whole line", onClick: () => setEdit({ gi: wordMenu.w.gi }) },
+            { label: "Reel starts here   ⌥-click", onClick: () => patch({ start: wordMenu.w.s }) },
+            { label: "Reel ends here   ⇧-click", onClick: () => patch({ end: wordMenu.w.e }) },
+            { label: "Teaser starts here   ⌘-click", onClick: () => setPunch(wordMenu.w.s, Math.max(wordMenu.w.e, c.punchEnd != null && c.punchEnd > wordMenu.w.s ? c.punchEnd : wordMenu.w.e + 2)) },
+            { label: "Teaser ends here   ⌘⇧-click", disabled: !hasPunch || wordMenu.w.e <= c.punchStart, onClick: () => setPunch(c.punchStart, wordMenu.w.e) },
+          ]} />}
         </Panel>
       </div>
 
       <Grip value={rightW} set={setRightW} dir={-1} reset={340} />
       <div className="panel" style={{ width: rightW, flexShrink: 0 }}>
-        <div className="panel-head"><span>Reel</span><span className="grow" /><Cat id={c.category} style={{ color: "var(--sec)" }} /><select className="input" style={{ width: 110, height: 22, fontSize: 12, padding: "0 6px" }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{CAT_NAMES[k]}</option>)}</select><span className="score" style={{ height: 22 }}>score <input type="number" min="1" max="10" value={c.score} onChange={(e) => patch({ score: +e.target.value })} style={{ width: 28, background: "none", border: 0, color: "inherit", font: "inherit", textAlign: "center", padding: 0, marginLeft: 4 }} /></span></div>
+        <div className="panel-head">{TABS.map(([v, l]) => <button key={v} type="button" className={`tab ${tab === v ? "on" : ""}`} onClick={() => setTab(v)}>{l}</button>)}</div>
         <div className="panel-body" style={{ gap: 12 }}>
-          {c.why && <span className="muted" style={{ lineHeight: 1.45, fontStyle: "italic" }}>{c.why}</span>}
-          <div className="insp-group">
-            <div className="insp-head">Words<span className="grow" />{pick && <a href="#" onClick={(e) => { e.preventDefault(); setPick(null); }}>follow the playhead</a>}</div>
-            {current ? (
-              <>
-                <Field label={`Word · ${fmt(current.s)}`}><Text value={current.w} onCommit={async (v) => { const r = await tryAct("edit_word", { id: sourceId, index: current.gi, word: current.wi, text: v }, "Word corrected"); if (r) refreshSeg(r, current.gi); }} /></Field>
-                <Field label="Its line"><Text area rows={3} value={currentSeg?.text || ""} onCommit={async (v) => { const r = await tryAct("edit_segment", { id: sourceId, index: current.gi, text: v }, "Line corrected"); if (r) refreshSeg(r, current.gi); }} /></Field>
-                <span className="hint">Click a word in the strip to pick it. More words share its time. Empty drops it.</span>
-              </>
-            ) : <span className="hint">Play, or click a word in the strip below the preview.</span>}
-          </div>
-          <ReelDetails c={c} s={s} sourceId={sourceId} go={go} hookTpl={hookTpl} applyScope={applyScope} setApplyScope={setApplyScope} applyKeys={applyKeys} setApplyKeys={setApplyKeys} setPending={setPending} live={live} aspectKey={aspectKey} />
+          <ReelDetails c={c} s={s} sourceId={sourceId} go={go} tab={tab} hookTpl={hookTpl} applyScope={applyScope} setApplyScope={setApplyScope} applyKeys={applyKeys} setApplyKeys={setApplyKeys} setPending={setPending} aspectKey={aspectKey} />
         </div>
         <span className="grow" />
         <div className="panel-foot" style={{ flexWrap: "wrap" }}>
           <Btn primary className="grow" onClick={async () => { const r = await tryAct("approve", { ids: [c.id], approved: !c.approved }); if (r != null && !c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }}>{c.approved ? "Approved ✓" : "Approve and next"}</Btn>
           <Btn onClick={async () => { const r = await tryAct("render", { candidateIds: [c.id] }, "Rendering"); if (r) go("queue"); }}>Render now</Btn>
-          <Btn onClick={() => tryAct("pick_cover", { id: c.id }, "Choosing a new cover")} title="Picks the cover frame again and renders this reel again.">New cover</Btn>
           <Btn danger icon onClick={() => tryAct("discard", { id: c.id })} aria-label="Discard" title={c.discarded ? "Restore" : "Discard"}>{I.trash}</Btn>
         </div>
       </div>
@@ -315,12 +350,12 @@ export default function Reels({ nav, go }) {
   );
 }
 
-// Everything in the inspector below Words. Memoised: during playback the parent re-renders every
-// frame for the picture and the current word; this part only when the reel or the store changes.
-const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, applyScope, setApplyScope, applyKeys, setApplyKeys, setPending, live, aspectKey }) {
+const TABS = [["text", "Text"], ["look", "Look"], ["sound", "Sound"], ["publish", "Publish"]];
+
+// The inspector's tabs. Memoised: during playback the parent re-renders every frame for the
+// picture and the current word; this part only when the reel or the store changes.
+const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl, applyScope, setApplyScope, applyKeys, setApplyKeys, setPending, aspectKey }) {
   const patch = (p) => tryAct("update_candidate", { id: c.id, patch: p });
-  const hasPunch = c.punchStart != null && c.punchEnd != null;
-  const busyPunch = s.jobs.some((j) => j.kind === "punchline" && j.refId === c.id && (j.status === "queued" || j.status === "running"));
   const L = s.settings.logo || {};
   const ec = s.settings.endCard || {};
   const chooseLogo = async () => { const p = await tryAct("choose_file", { kind: "image", prompt: "Choose the logo (PNG with transparency works best)" }); if (p) tryAct("settings", { patch: { logo: { path: p, enabled: true } } }, "Logo set"); };
@@ -328,72 +363,45 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
   // The colour picker fires while it is dragged: remake the cards once it settles.
   const colorTimer = useRef(null);
   const setCardColor = (hex) => { clearTimeout(colorTimer.current); colorTimer.current = setTimeout(() => tryAct("end_card_image", { background: hex }), 450); };
+  const done = s.renders.filter((r) => r.candidateId === c.id && r.status === "done");
   return (
     <>
-          <div className="insp-group">
-            <div className="insp-head">Teaser<span className="grow" /><Check label="Punchline first" checked={hasPunch && (c.introOn ?? s.settings.intro ?? true)} disabled={!hasPunch} onChange={(v) => patch({ introOn: v })} /></div>
-            {hasPunch ? <span style={{ lineHeight: 1.4 }}>“{c.punchline || "…"}” <span className="muted num">{fmt(c.punchStart)} · {(c.punchEnd - c.punchStart).toFixed(1)} s</span></span> : <span className="hint">No punchline yet. Ask Claude, or Cmd-click a word in the strip (Cmd-Shift-click ends it).</span>}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <Btn small disabled={busyPunch} onClick={() => tryAct("punchline", { id: c.id }, "Claude is picking the punchline")}>{busyPunch ? "Asking…" : hasPunch ? "Ask Claude again" : "Ask Claude"}</Btn>
-              <Btn small onClick={() => { const { t, setPunch } = live.current; setPunch(t, hasPunch && c.punchEnd > t + 0.8 ? c.punchEnd : t + 3); }}>Start = playhead</Btn>
-              <Btn small disabled={!hasPunch} onClick={() => { const { t, setPunch } = live.current; setPunch(c.punchStart, t); }}>End = playhead</Btn>
-            </div>
-            <Field label="Transition"><select className="input" value={c.transition || ""} onChange={(e) => patch({ transition: e.target.value || null })}><option value="">Default · {TRANSITIONS.find(([v]) => v === (s.settings.transition || "swoosh"))?.[1]}</option>{TRANSITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
-            <span className="hint">The punchline plays first, the transition (with a whoosh on Swoosh, Zoom, Slide and Blur) leads into the reel. The title shows over the teaser.</span>
+      {tab === "text" && <div className="insp-group">
+        <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
+        <Field label={`Title on the video, first ${(hookTpl.hookSeconds || 2.5)} s`}><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
+        <Field label="Cover line"><Text area rows={2} value={c.coverTitle || ""} onCommit={async (v) => { await patch({ coverTitle: v }); tryAct("covers", { candidateIds: [c.id] }); }} placeholder="Written with the cover pick. Tells the reel's story in one or two lines." /></Field>
+        <Btn small style={{ alignSelf: "flex-start" }} onClick={() => tryAct("pick_cover", { id: c.id }, "Choosing a new cover")} title="Picks the cover frame again and renders this reel again.">New cover</Btn>
+        <span className="hint">Words are corrected in the strip under the trim: double-click a word, or right-click for the whole line. That changes the lecture's transcript.</span>
+      </div>}
+
+      {tab === "look" && <>
+        <div className="insp-group">
+          <div className="insp-head">Captions and title<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></div>
+          <div className="grid2">
+            <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
+            <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
           </div>
-          <div className="insp-group">
-            <div className="insp-head">Text</div>
-            <Field label="Title"><Text value={c.title} onCommit={(v) => patch({ title: v })} /></Field>
-            <Field label={`Title on the video, first ${(hookTpl.hookSeconds || 2.5)} s`}><Text value={c.hook} onCommit={(v) => patch({ hook: v })} /></Field>
-            <Field label="Cover line"><Text area rows={2} value={c.coverTitle || ""} onCommit={async (v) => { await patch({ coverTitle: v }); tryAct("covers", { candidateIds: [c.id] }); }} placeholder="Written with the cover pick. Tells the reel's story in one or two lines." /></Field>
-          </div>
-          <div className="insp-group">
-            <div className="insp-head">Look<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></div>
-            <div className="grid2">
-              <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
-              <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
-            </div>
-            <div style={{ display: "flex", gap: 14 }}><Check label="Captions on the video" checked={c.captionsOn !== false} onChange={(v) => patch({ captionsOn: v })} /><Check label="Title on the video" checked={c.titleOn !== false} onChange={(v) => patch({ titleOn: v })} /></div>
-            <span className="hint">Drag the captions or the picture to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}><Check label="Captions on the video" checked={c.captionsOn !== false} onChange={(v) => patch({ captionsOn: v })} /><Check label="Title on the video" checked={c.titleOn !== false} onChange={(v) => patch({ titleOn: v })} /></div>
+          <span className="hint">Drag the captions or the picture to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
+        </div>
+        <div className="insp-group">
+          <div className="insp-head">Logo<span className="grow" />{L.path && <Check label="On this reel" checked={c.logo?.on ?? L.enabled} onChange={(v) => patch({ logo: { ...(c.logo || {}), on: v } })} />}</div>
+          {L.path ? <>
+            <span className="hint">Drag the logo in the preview to place it on this reel.{c.logo?.x != null && <> <a href="#" onClick={(e) => { e.preventDefault(); tryAct("settings", { patch: { logo: { x: c.logo.x, y: c.logo.y } } }, "Place is the default now"); }}>make this the default place</a> · <a href="#" onClick={(e) => { e.preventDefault(); patch({ logo: { x: null, y: null } }); }}>reset</a>.</>}</span>
             <details className="apply-box">
-              <summary>Apply to the queue<span className="muted"> · {applyKeys.length} chosen</span></summary>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>Scope</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
-                {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
-              </div>
-              <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Applied to ${n} reels`); }}>Apply to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
-            </details>
-          </div>
-          <div className="insp-group">
-            <div className="insp-head">Sound<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>music sources</a></div>
-            {(() => {
-              const ready = (s.tracks || []).filter((t) => t.status === "ready");
-              const def = s.settings.music || "random";
-              const picked = reelTrack(s.tracks || [], s.settings, c);
-              return <>
-                <Field label={`Music${picked ? ` · ${picked.title}` : ""}`}><select className="input" value={c.music ?? ""} onChange={(e) => patch({ music: e.target.value || null })}>
-                  <option value="">Default · {def === "none" ? "no music" : "random"}</option><option value="random">Random</option><option value="none">No music</option>
-                  {ready.map((t) => <option key={t.id} value={t.id}>{t.title}{t.duration ? ` · ${fmtLong(t.duration)}` : ""}</option>)}
-                </select></Field>
-                {!ready.length && <span className="hint">No tracks yet. Add a YouTube video or playlist under Settings › Music.</span>}
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Music level</span><input type="range" className="slider" min="0" max="1" step="0.05" value={c.musicVolume ?? s.settings.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num muted" style={{ width: 70 }}>{Math.round((c.musicVolume ?? s.settings.musicVolume ?? 0.3) * 100)}%{c.musicVolume == null ? " default" : ""}</span>{c.musicVolume != null && <a href="#" onClick={(e) => { e.preventDefault(); patch({ musicVolume: null }); }}>reset</a>}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Loudness</span><select className="input" value={c.loudness ?? ""} onChange={(e) => patch({ loudness: e.target.value === "" ? null : +e.target.value })}><option value="">Default · {LOUDNESS.find(([v]) => v === (s.settings.loudness ?? -11))?.[1] || `${s.settings.loudness} LUFS`}</option>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-                <span className="hint">The music ducks under the speaker in the render. Use "Apply to the queue" below for every reel.</span>
-              </>;
-            })()}
-          </div>
-          <div className="insp-group">
-            <div className="insp-head">Logo<span className="grow" />{L.path && <Check label="On this reel" checked={c.logo?.on ?? L.enabled} onChange={(v) => patch({ logo: { ...(c.logo || {}), on: v } })} />}</div>
-            {L.path ? <>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><img src={fileUrl(L.path)} alt="" style={{ height: 28, maxWidth: 80, objectFit: "contain", background: "#0006", borderRadius: 3 }} /><span className="muted" style={{ width: 34 }}>size</span><input type="range" className="slider" min="0.05" max="0.4" step="0.01" value={L.size ?? 0.16} onChange={(e) => tryAct("settings", { patch: { logo: { size: +e.target.value } } })} /><span className="num muted" style={{ width: 34 }}>{Math.round((L.size ?? 0.16) * 100)}%</span></div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 48 }}>opacity</span><input type="range" className="slider" min="0.2" max="1" step="0.05" value={L.opacity ?? 1} onChange={(e) => tryAct("settings", { patch: { logo: { opacity: +e.target.value } } })} /><Btn small onClick={chooseLogo}>Change…</Btn></div>
+              <summary>Every reel<span className="muted"> · library setting</span></summary>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><img src={fileUrl(L.path)} alt="" style={{ height: 28, maxWidth: 80, objectFit: "contain", background: "#0006", borderRadius: 3 }} /><span className="grow" /><Btn small onClick={chooseLogo}>Change…</Btn></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 48 }}>size</span><input type="range" className="slider" min="0.05" max="0.4" step="0.01" value={L.size ?? 0.16} onChange={(e) => tryAct("settings", { patch: { logo: { size: +e.target.value } } })} /><span className="num muted" style={{ width: 34 }}>{Math.round((L.size ?? 0.16) * 100)}%</span></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 48 }}>opacity</span><input type="range" className="slider" min="0.2" max="1" step="0.05" value={L.opacity ?? 1} onChange={(e) => tryAct("settings", { patch: { logo: { opacity: +e.target.value } } })} /><span className="num muted" style={{ width: 34 }}>{Math.round((L.opacity ?? 1) * 100)}%</span></div>
               <Check label="Also on the end card" checked={!!L.onEndCard} onChange={(v) => tryAct("settings", { patch: { logo: { onEndCard: v } } })} />
-              <span className="hint">Drag the logo in the preview to place it on this reel.{c.logo?.x != null && <> <a href="#" onClick={(e) => { e.preventDefault(); tryAct("settings", { patch: { logo: { x: c.logo.x, y: c.logo.y } } }, "Place is the default now"); }}>make this the default place</a> · <a href="#" onClick={(e) => { e.preventDefault(); patch({ logo: { x: null, y: null } }); }}>reset</a>.</>}</span>
-            </> : <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Btn small onClick={chooseLogo}>Choose logo…</Btn><span className="hint">PNG with transparency. Goes on every reel; drag to place.</span></div>}
-          </div>
-          <div className="insp-group">
-            <div className="insp-head">End card<span className="grow" />{ec.paths?.[aspectKey] && <Check label="On this reel" checked={c.endCardOn ?? ec.enabled} onChange={(v) => patch({ endCardOn: v })} />}</div>
-            {ec.paths?.[aspectKey] ? <div style={{ display: "flex", alignItems: "center", gap: 8 }}><img src={fileUrl(ec.paths[aspectKey])} alt="" style={{ height: 48, borderRadius: 3, border: "1px solid var(--rule)" }} /><span className="muted" style={{ fontSize: 13 }}>{ec.seconds ?? 2.5} s after the reel{ec.enabled ? ", on for every reel" : ", off by default"}</span></div> : <span className="hint">No end card yet.</span>}
+            </details>
+          </> : <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Btn small onClick={chooseLogo}>Choose logo…</Btn><span className="hint">PNG with transparency. Goes on every reel; drag to place.</span></div>}
+        </div>
+        <div className="insp-group">
+          <div className="insp-head">End card<span className="grow" />{ec.paths?.[aspectKey] && <Check label="On this reel" checked={c.endCardOn ?? ec.enabled} onChange={(v) => patch({ endCardOn: v })} />}</div>
+          {ec.paths?.[aspectKey] ? <div style={{ display: "flex", alignItems: "center", gap: 8 }}><img src={fileUrl(ec.paths[aspectKey])} alt="" style={{ height: 48, borderRadius: 3, border: "1px solid var(--rule)" }} /><span className="muted" style={{ fontSize: 13 }}>{ec.seconds ?? 2.5} s after the reel{ec.enabled ? ", on for every reel" : ", off by default"}</span></div> : <span className="hint">No end card yet.</span>}
+          <details className="apply-box" open={!ec.image || undefined}>
+            <summary>Every reel<span className="muted"> · library setting</span></summary>
             {ec.image && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Seg value={ec.background ? "color" : "blur"} onChange={(v) => tryAct("end_card_image", { background: v === "color" ? "#000000" : "" })} options={[["color", "Colour"], ["blur", "Blurred"]]} />
               {ec.background && <input type="color" defaultValue={ec.background} key={ec.background} onChange={(e) => setCardColor(e.target.value)} style={{ width: 30, height: 24, border: 0, background: "none", padding: 0 }} title="Background behind the picture" />}
@@ -401,24 +409,55 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
             </div>}
             {ec.paths?.[aspectKey] && <Check label="Music plays over the end card" checked={ec.music !== false} onChange={(v) => tryAct("settings", { patch: { endCard: { music: v } } })} />}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><Btn small onClick={chooseCard}>Choose image…</Btn><Btn small onClick={() => go("posters")}>Draw from a poster</Btn></div>
+          </details>
+        </div>
+      </>}
+
+      {tab === "sound" && <div className="insp-group">
+        {(() => {
+          const ready = (s.tracks || []).filter((t) => t.status === "ready");
+          const def = s.settings.music || "random";
+          const picked = reelTrack(s.tracks || [], s.settings, c);
+          return <>
+            <Field label={`Music${picked ? ` · ${picked.title}` : ""}`}><select className="input" value={c.music ?? ""} onChange={(e) => patch({ music: e.target.value || null })}>
+              <option value="">Default · {def === "none" ? "no music" : "random"}</option><option value="random">Random</option><option value="none">No music</option>
+              {ready.map((t) => <option key={t.id} value={t.id}>{t.title}{t.duration ? ` · ${fmtLong(t.duration)}` : ""}</option>)}
+            </select></Field>
+            {!ready.length && <span className="hint">No tracks yet. Add a YouTube video or playlist under Settings › Music.</span>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Music level</span><input type="range" className="slider" min="0" max="1" step="0.05" value={c.musicVolume ?? s.settings.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num muted" style={{ width: 70 }}>{Math.round((c.musicVolume ?? s.settings.musicVolume ?? 0.3) * 100)}%{c.musicVolume == null ? " default" : ""}</span>{c.musicVolume != null && <a href="#" onClick={(e) => { e.preventDefault(); patch({ musicVolume: null }); }}>reset</a>}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Loudness</span><select className="input" value={c.loudness ?? ""} onChange={(e) => patch({ loudness: e.target.value === "" ? null : +e.target.value })}><option value="">Default · {LOUDNESS.find(([v]) => v === (s.settings.loudness ?? -11))?.[1] || `${s.settings.loudness} LUFS`}</option>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <span className="hint">The music ducks under the speaker in the render. <a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>Music sources</a>.</span>
+          </>;
+        })()}
+      </div>}
+
+      {tab === "publish" && <>
+        <div className="insp-group">
+          <Field label="Caption"><Text area rows={4} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
+          <Field label={`Hashtags · ${(c.hashtags || []).length}`}><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
+          {(s.targets || []).filter((t) => t.enabled).length > 0 && <Field label="Post to"><div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>{(s.targets || []).filter((t) => t.enabled).map((t) => { const all = (s.targets || []).filter((x) => x.enabled).map((x) => x.id); const on = !c.targets?.length || c.targets.includes(t.id); return <Check key={t.id} label={t.name} checked={on} onChange={(v) => { const cur = c.targets?.length ? c.targets.filter((id) => all.includes(id)) : all; const next = v ? [...new Set([...cur, t.id])] : cur.filter((id) => id !== t.id); patch({ targets: next.length === all.length ? [] : next }); }} />; })}</div></Field>}
+        </div>
+        <div className="insp-group">
+          <div className="insp-head">Render as<span className="grow" /><span className="muted" style={{ fontWeight: 400 }}>{c.formats?.length ? "this reel" : "library default"} + clean cut</span></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+            {FORMATS.map(([v, l]) => <Check key={v} label={l} checked={(c.formats?.length ? c.formats : s.settings.formats || []).includes(v)} onChange={(on) => { const cur = c.formats?.length ? c.formats : s.settings.formats || []; patch({ formats: on ? [...new Set([...cur, v])] : cur.filter((f) => f !== v) }); }} />)}
           </div>
-          <div className="insp-group">
-            <div className="insp-head">Post</div>
-            <Field label="Caption"><Text area rows={4} value={c.caption} onCommit={(v) => patch({ caption: v })} /></Field>
-            <Field label={`Hashtags · ${(c.hashtags || []).length}`}><Text value={(c.hashtags || []).join(" ")} onCommit={(v) => patch({ hashtags: v.split(/[\s,#]+/).filter(Boolean) })} /></Field>
-            {(s.targets || []).filter((t) => t.enabled).length > 0 && <Field label="Post to"><div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>{(s.targets || []).filter((t) => t.enabled).map((t) => { const all = (s.targets || []).filter((x) => x.enabled).map((x) => x.id); const on = !c.targets?.length || c.targets.includes(t.id); return <Check key={t.id} label={t.name} checked={on} onChange={(v) => { const cur = c.targets?.length ? c.targets.filter((id) => all.includes(id)) : all; const next = v ? [...new Set([...cur, t.id])] : cur.filter((id) => id !== t.id); patch({ targets: next.length === all.length ? [] : next }); }} />; })}</div></Field>}
-          </div>
-          <div className="insp-group">
-            <div className="insp-head">Files</div>
-            {!s.renders.some((r) => r.candidateId === c.id && r.status === "done") && <span className="hint">Nothing rendered yet.</span>}
-            {s.renders.filter((r) => r.candidateId === c.id && r.status === "done").map((r) => { const i = r.info || {}; const bad = i.issues?.length; return <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><Dot c={bad ? "coral" : i.width ? "mint" : ""} /><b style={{ width: 62 }}>{formatName(r.format)}</b><span className={`ell ${bad ? "coral" : "muted"}`}>{i.width ? `${i.width}×${i.height} · ${Math.round(i.fps)} fps · ${(i.kbps / 1000).toFixed(1)} Mbps · ${i.seconds} s${bad ? ` · ${i.issues.join(", ")}` : ""}` : "not measured"}</span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>play</a></div>; })}
-          </div>
-          <div className="insp-group">
-            <div className="insp-head">Render as<span className="grow" /><span className="muted" style={{ fontWeight: 400, marginRight: 8 }}>+ clean cut, always</span><span className="muted" style={{ fontWeight: 400 }}>{c.formats?.length ? "this reel" : "library default"}</span></div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
-              {FORMATS.map(([v, l]) => <Check key={v} label={l} checked={(c.formats?.length ? c.formats : s.settings.formats || []).includes(v)} onChange={(on) => { const cur = c.formats?.length ? c.formats : s.settings.formats || []; patch({ formats: on ? [...new Set([...cur, v])] : cur.filter((f) => f !== v) }); }} />)}
-            </div>
-          </div>
+        </div>
+        <div className="insp-group">
+          <div className="insp-head">Files</div>
+          {!done.length && <span className="hint">Nothing rendered yet.</span>}
+          {done.map((r) => { const i = r.info || {}; const bad = i.issues?.length; return <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><Dot c={bad ? "coral" : i.width ? "mint" : ""} /><b style={{ width: 62 }}>{formatName(r.format)}</b><span className={`ell ${bad ? "coral" : "muted"}`}>{i.width ? `${i.width}×${i.height} · ${Math.round(i.fps)} fps · ${(i.kbps / 1000).toFixed(1)} Mbps · ${i.seconds} s${bad ? ` · ${i.issues.join(", ")}` : ""}` : "not measured"}</span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>play</a></div>; })}
+        </div>
+      </>}
+
+      <details className="apply-box">
+        <summary>Copy settings to other reels<span className="muted"> · {applyKeys.length} chosen</span></summary>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>To</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
+          {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
+        </div>
+        <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Copied to ${n} reels`); }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
+      </details>
     </>
   );
 });

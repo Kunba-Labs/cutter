@@ -205,3 +205,13 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 .menu-item { height: 26px; padding: 0 10px; border: 0; border-radius: 4px; background: none; color: var(--text); font-size: 13.5px; text-align: left; cursor: pointer; }
 .menu-item:hover { background: var(--accent); color: var(--on-accent); } .menu-item:disabled { opacity: .4; cursor: default; } .menu-item:disabled:hover { background: none; color: var(--text); }
 .menu-item.danger { color: #FF8AA0; }
+.words .inline-edit { height: 18px; padding: 0 3px; font-size: 12.5px; width: auto; border-color: var(--tiffany); }
+.words .inline-edit.line { height: auto; flex-basis: 100%; line-height: 1.4; }
+/* The teaser (per reel) sits over the preview: one line, its timing and transition folded away. */
+.teaser-bar { min-height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 3px 10px; border-bottom: 1px solid var(--rule); font-size: 13px; min-width: 0; }
+.teaser-bar .check { flex-shrink: 0; }
+.cand-detail { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--rule); font-size: 13px; max-height: 30%; overflow: auto; flex-shrink: 0; }
+.panel-head .tab { height: 22px; padding: 0 9px; font-size: 13px; }
+/* A new transcript line starts: a thin rule before its first word. */
+.words span.ls { margin-left: 4px; border-left: 1px solid var(--rule); border-radius: 0 2px 2px 0; padding-left: 5px; }
+.teaser-bar .check .grow { flex-grow: 0; }

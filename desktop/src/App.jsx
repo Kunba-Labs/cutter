@@ -92,7 +92,37 @@ export default function App() {
       </div>
       <Boundary resetKey={`${nav.tab}:${nav.sourceId}:${nav.view}`} onHome={() => go("library", { sourceId: null, view: "reels" })}>{screen}</Boundary>
       {adding && <AddSource onClose={() => setAdding(false)} go={go} />}
-      {s.toast && <div style={{ position: "fixed", right: 16, bottom: 16, padding: "8px 12px", borderRadius: 4, background: s.toast.kind === "err" ? "#3B1F2A" : "var(--head)", border: `1px solid ${s.toast.kind === "err" ? "var(--coral)" : s.toast.kind === "ok" ? "var(--mint)" : "var(--rule)"}`, fontSize: 13.5, maxWidth: 420, zIndex: 20 }}>{s.toast.msg}</div>}
+      <QueueMeter jobs={s.jobs} paused={s.settings.queuePaused} onOpen={() => go("queue")} />
+      {s.toast && <div style={{ position: "fixed", right: 16, bottom: 40, padding: "8px 12px", borderRadius: 4, background: s.toast.kind === "err" ? "#3B1F2A" : "var(--head)", border: `1px solid ${s.toast.kind === "err" ? "var(--coral)" : s.toast.kind === "ok" ? "var(--mint)" : "var(--rule)"}`, fontSize: 13.5, maxWidth: 420, zIndex: 20 }}>{s.toast.msg}</div>}
+    </div>
+  );
+}
+
+/* The whole queue at a glance, bottom right while anything is queued or running: done / total of the
+   run (what is waiting, and what finished since the oldest of it was queued), one bar, and the time
+   left at the pace so far. */
+function QueueMeter({ jobs, paused, onOpen }) {
+  const active = jobs.filter((j) => j.status === "queued" || j.status === "running");
+  if (!active.length) return <div className="statusbar"><span className="grow" /><span className="queue-meter idle">Queue idle</span></div>;
+  const from = active.reduce((m, j) => (j.createdAt < m ? j.createdAt : m), active[0].createdAt);
+  // A finished job belongs to this run when it ended after the oldest waiting job was queued.
+  const batch = jobs.filter((j) => j.status !== "cancelled" && (j.createdAt >= from || (j.finishedAt && j.finishedAt >= from)));
+  const finished = batch.filter((j) => j.status === "done" || j.status === "failed").length;
+  const units = finished + batch.filter((j) => j.status === "running").reduce((n, j) => n + (j.progress || 0), 0);
+  const started = batch.map((j) => j.startedAt).filter(Boolean).sort()[0];
+  const secs = started ? (Date.now() - new Date(started).getTime()) / 1000 : 0;
+  const left = units > 0.2 && secs > 10 ? ((batch.length - units) * secs) / units : null;
+  const eta = paused ? "paused" : left == null ? "" : left < 90 ? `${Math.max(1, Math.round(left))} s left` : left < 5400 ? `${Math.round(left / 60)} min left` : `${(left / 3600).toFixed(1)} h left`;
+  const failed = batch.filter((j) => j.status === "failed").length;
+  return (
+    <div className="statusbar">
+      <span className="muted ell">{active.find((j) => j.status === "running")?.label || active[0].label}</span>
+      <span className="grow" />
+      <button type="button" className="queue-meter" onClick={onOpen} title="Open the queue">
+        <span className="num qm-count">{finished}/{batch.length}</span>
+        <span className="qm-bar"><i style={{ width: `${Math.min(100, (units / batch.length) * 100)}%` }} /></span>
+        <span className={`num qm-eta ${failed ? "coral" : "muted"}`}>{failed ? `${failed} failed` : eta}</span>
+      </button>
     </div>
   );
 }

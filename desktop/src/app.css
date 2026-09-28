@@ -226,3 +226,13 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 /* A new transcript line starts: a thin rule before its first word. */
 .words span.ls { margin-left: 4px; border-left: 1px solid var(--rule); border-radius: 0 2px 2px 0; padding-left: 5px; }
 .teaser-bar .check .grow { flex-grow: 0; }
+
+/* The status bar along the bottom: the job at work on the left, the queue meter (fixed width, fixed
+   columns, so nothing moves while numbers change) on the right. Always there, so it never covers a button. */
+.statusbar { flex-shrink: 0; height: 24px; display: flex; align-items: center; gap: 10px; padding: 0 4px; font-size: 12px; min-width: 0; }
+.queue-meter { width: 300px; flex-shrink: 0; display: grid; grid-template-columns: 52px 1fr 86px; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; font: inherit; font-variant-numeric: tabular-nums; }
+.queue-meter.idle { display: block; text-align: right; color: var(--muted); cursor: default; }
+.qm-count { text-align: right; }
+.qm-eta { text-align: right; white-space: nowrap; }
+.qm-bar { height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+.qm-bar i { display: block; height: 100%; background: var(--mint); transition: width .4s; }

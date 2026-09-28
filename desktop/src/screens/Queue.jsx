@@ -45,8 +45,18 @@ export default function Queue() {
   const [menu, setMenu] = useState(null); // { x, y, job }
   const [askStop, setAskStop] = useState(false);
   // The file a job stands for: the finished render, else the lecture's video.
-  const fileOf = (v) => (v.kind === "render" && v.status === "done" ? v.message : src(v)?.previewPath || src(v)?.videoPath);
-  const folderOf = (v) => fileOf(v) || src(v)?.folder;
+  // What a job made (or is making): the render's file, the post's file, the poster's folder, the
+  // music folder. Only jobs about the lecture itself point at its video.
+  const renderOf = (cid, format) => s.renders.filter((r) => r.candidateId === cid && r.format === format).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const outOf = (v) => {
+    if (v.kind === "render") return (v.status === "done" && v.message) || renderOf(v.refId, v.args?.format)?.path;
+    if (v.kind === "publish") { const p = s.posts.find((x) => x.id === v.refId); return s.renders.find((r) => r.id === p?.renderId)?.path; }
+    if (["poster", "endcards", "waiting_video"].includes(v.kind)) return s.posters.find((x) => x.id === v.refId)?.folder;
+    if (v.kind === "music") return s.paths.dataDir && `${s.paths.dataDir}/music`;
+    return null;
+  };
+  const fileOf = (v) => (v.kind === "render" || v.kind === "publish" ? outOf(v) : src(v)?.previewPath || src(v)?.videoPath);
+  const folderOf = (v) => outOf(v) || src(v)?.videoPath || src(v)?.folder;
   const menuItems = (v) => [
     { label: "Play", disabled: !fileOf(v), onClick: () => tryAct("open", { path: fileOf(v) }) },
     { label: "Open in Finder", disabled: !folderOf(v), onClick: () => tryAct("open", { path: folderOf(v), reveal: true }) },
@@ -97,7 +107,7 @@ export default function Queue() {
                 <div className="log" style={{ flexGrow: 1, minHeight: 120 }}>{j.log || "—"}</div>
               </div>
               <div className="panel-foot">
-                {j.kind === "render" && j.status === "done" && <Btn onClick={() => tryAct("open", { path: j.message, reveal: true })}>Reveal in Finder</Btn>}
+                {folderOf(j) && <Btn onClick={() => tryAct("open", { path: folderOf(j), reveal: true })}>Reveal in Finder</Btn>}
                 {j.status === "failed" && <Btn primary onClick={() => tryAct("retry_job", { id: j.id })}>Retry</Btn>}
                 <span className="grow" />
                 {(j.status === "running" || j.status === "queued") && <Btn danger onClick={() => tryAct("cancel_job", { id: j.id })}>Cancel</Btn>}

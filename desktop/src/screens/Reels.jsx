@@ -42,7 +42,7 @@ export default function Reels({ nav, go }) {
   const [applyKeys, setApplyKeys] = useState(["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
   const video = useRef(null);
-  // The teaser preview: playing the punchline, then a flash, then the reel from its start.
+  // The teaser preview: the punchline, then the reel's transition (`flash` holds its name), then the reel.
   const teaser = useRef(false);
   const [teasing, setTeasing] = useState(false);
   const [flash, setFlash] = useState(false);
@@ -60,7 +60,14 @@ export default function Reels({ nav, go }) {
   useEffect(() => { if (video.current) video.current.playbackRate = speed; }, [speed]);
 
   useEffect(() => { if (sourceId) act("source", { id: sourceId }).then(setDetail).catch(() => setDetail(null)); }, [sourceId, x?.updatedAt]);
-  useEffect(() => { if (c && video.current) { video.current.currentTime = c.start; } }, [c?.id]);
+  // Another reel: start at its in point, out of any teaser the last one was paused in.
+  useEffect(() => { teaser.current = false; setTeasing(false); if (c && video.current) { video.current.currentTime = c.start; } }, [c?.id]);
+  // The start of the whole thing: the teaser when this reel has one switched on, else the reel.
+  const fromTop = (v) => {
+    const withTeaser = c && c.punchStart != null && c.punchEnd != null && (c.introOn ?? s.settings.intro ?? true);
+    teaser.current = !!withTeaser; setTeasing(!!withTeaser);
+    v.currentTime = withTeaser ? c.punchStart : c.start;
+  };
   useEffect(() => {
     let raf;
     const tick = () => {
@@ -76,7 +83,10 @@ export default function Reels({ nav, go }) {
             // than the old 0.4 s tolerance) kept the track seeking forever: one second of sound, then none.
             if (m.playbackRate !== v.playbackRate) m.playbackRate = v.playbackRate;
             const len = m.duration || 1e9;
-            const want = Math.max(0, v.currentTime - c.start) % len;
+            // The music runs on the file's clock: from the teaser's first second, on through the reel.
+            const lead = c.punchStart != null && c.punchEnd != null && (c.introOn ?? s.settings.intro ?? true) ? c.punchEnd - c.punchStart : 0;
+            const clock = teaser.current ? v.currentTime - c.punchStart : lead + v.currentTime - c.start;
+            const want = Math.max(0, clock) % len;
             const off = Math.abs(m.currentTime - want);
             if (!m.seeking && Math.min(off, len - off) > 1) m.currentTime = want;
             if (m.paused) m.play().catch(() => {});
@@ -84,7 +94,8 @@ export default function Reels({ nav, go }) {
         }
         if (teaser.current && !v.paused && c.punchEnd != null && v.currentTime >= c.punchEnd) {
           teaser.current = false; setTeasing(false);
-          setFlash(true); setTimeout(() => setFlash(false), 350);
+          const tx = c.transition || s.settings.transition || "swoosh";
+          if (tx !== "cut") { setFlash(tx); setTimeout(() => setFlash(false), 450); }
           v.currentTime = c.start;
         } else if (!teaser.current && !v.paused && v.currentTime >= c.end && v.currentTime < c.end + 0.5) {
           // Crossing the out point loops; playing on from beyond it (to hear what follows) does not.
@@ -96,9 +107,9 @@ export default function Reels({ nav, go }) {
             // Hold the closing card (or the fading frame) for its duration, then loop.
             // Music on over the card only when the library says so; the tail is there for the music.
             v.pause(); holding.current = !card || ec.music !== false; setHold(card ? "card" : "tail");
-            setTimeout(() => { holding.current = false; setHold(false); v.currentTime = c.start; v.play(); }, (card ? ec.seconds || 2.5 : tail) * 1000);
+            setTimeout(() => { holding.current = false; setHold(false); fromTop(v); v.play(); }, (card ? ec.seconds || 2.5 : tail) * 1000);
           } else {
-            v.currentTime = c.start;
+            fromTop(v);
           }
         }
       }
@@ -106,7 +117,7 @@ export default function Reels({ nav, go }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [c?.start, c?.end, c?.punchEnd, c?.endCardOn, s.settings.endCard?.enabled, s.settings.endCard?.music, s.settings.endCard?.seconds, s.settings.endCard?.paths, s.settings.musicTail, aspectKey]);
+  }, [c?.start, c?.end, c?.punchStart, c?.punchEnd, c?.introOn, s.settings.intro, c?.transition, s.settings.transition, c?.endCardOn, s.settings.endCard?.enabled, s.settings.endCard?.music, s.settings.endCard?.seconds, s.settings.endCard?.paths, s.settings.musicTail, aspectKey]);
   useEffect(() => {
     const onKey = (e) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
@@ -127,11 +138,11 @@ export default function Reels({ nav, go }) {
   const patch = (p) => tryAct("update_candidate", { id: c.id, patch: p });
   const tpl = (s.settings.captionTemplates || []).find((x) => x.name === c.style) || s.settings.captionStyle || {};
   const hookTpl = (s.settings.captionTemplates || []).find((x) => x.name === c.hookStyle) || tpl;
-  const toggle = () => { const v = video.current; if (!v) return; teaser.current = false; setTeasing(false); if (v.paused) { if (v.currentTime < c.start - CTX || v.currentTime > c.end + CTX) v.currentTime = c.start; v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); } };
-  const seek = (time) => { if (video.current) video.current.currentTime = Math.min(c.end + CTX, Math.max(Math.max(0, c.start - CTX), time)); };
+  // Play from the reel's start (or from outside the strip) begins with the teaser; anywhere else resumes there.
+  const toggle = () => { const v = video.current; if (!v) return; if (v.paused) { if (!teaser.current && (Math.abs(v.currentTime - c.start) < 0.3 || v.currentTime < c.start - CTX || v.currentTime > c.end + CTX)) fromTop(v); v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); } };
+  const seek = (time) => { teaser.current = false; setTeasing(false); if (video.current) video.current.currentTime = Math.min(c.end + CTX, Math.max(Math.max(0, c.start - CTX), time)); };
   const hasPunch = c.punchStart != null && c.punchEnd != null;
   const introOn = hasPunch && (c.introOn ?? s.settings.intro ?? true);
-  const playTeaser = () => { const v = video.current; if (!v || !hasPunch) return; teaser.current = true; setTeasing(true); v.currentTime = c.punchStart; v.play(); setPlaying(true); };
   const [aw, ah] = SPECS[format] || [9, 16];
   const stageRef = useRef(null);
   const [stage, setStage] = useState({ w: 600, h: 560 });
@@ -275,14 +286,14 @@ export default function Reels({ nav, go }) {
             <select className="input" style={{ width: 150, height: 22 }} value={c.transition || ""} onChange={(e) => patch({ transition: e.target.value || null })}><option value="">Default · {TRANSITIONS.find(([v]) => v === (s.settings.transition || "swoosh"))?.[1]}</option>{TRANSITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </div>}
           <div className="stage" ref={stageRef}>
-            <div className="frame" style={{ width: frameW, height: frameH, cursor: zoomW > frameW + 1 || zoomH > frameH + 1 ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+            <div className={`frame${flash ? ` tx-${flash}` : ""}`} style={{ width: frameW, height: frameH, cursor: zoomW > frameW + 1 || zoomH > frameH + 1 ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
               {x.videoPath && <video ref={video} key={x.meta?.fileAt || x.id} src={fileUrl(x.previewPath || x.videoPath, x.meta?.fileAt)} onError={(e) => toast(`The player can\u2019t read this video (error ${e.currentTarget.error?.code ?? "?"}). Try Import again in the Library.`, "err")} style={{ left, top, width: zoomW, height: zoomH, pointerEvents: "none" }} muted={false} />}
               {hold === "tail" && <div className="tail-fade" style={{ animationDuration: `${s.settings.musicTail ?? 3}s` }} />}
               {hold === "card" && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {c.titleOn !== false && hookTpl.hook !== false && c.hook && (teasing || (!introOn && t >= c.start - 0.3 && t - c.start < (hookTpl.hookSeconds || 2.5))) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {c.captionsOn !== false && (translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(capTpl, k), fontSize: (capTpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e ? litCss(tpl) : undefined}>{w.w} </span>)}</span></div>}
               {logoOn && (hold !== "card" || L.onEndCard) && <img src={fileUrl(L.path)} alt="" draggable={false} onLoad={(e) => setLogoAspect(e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight))} onPointerDown={onLogoDown} onPointerMove={onLogoMove} onPointerUp={onLogoUp} onPointerCancel={onLogoUp} title="Drag to place the logo on this reel" style={{ position: "absolute", left: (frameW - lw) * lx, top: (frameH - lh) * ly, width: lw, height: lh, opacity: L.opacity ?? 1, cursor: logoDrag ? "grabbing" : "move", zIndex: 3 }} />}
-              {flash && <div className="teaser-flash" />}
+              {(flash === "flash" || flash === "fade") && <div className={`teaser-flash ${flash}`} />}
               {track && <audio ref={music} key={track.id} src={fileUrl(track.path)} loop style={{ display: "none" }} />}
               {teasing && <span className="teaser-badge">teaser</span>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
@@ -294,7 +305,6 @@ export default function Reels({ nav, go }) {
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.max(0, i - 1)]?.id); }} aria-label="Previous">{I.prev}</Btn>
             <Btn icon primary onClick={toggle} aria-label="Play">{playing ? I.pause : I.play}</Btn>
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }} aria-label="Next">{I.next}</Btn>
-            {introOn && <Btn small onClick={playTeaser} title="Plays the punchline, the transition, then the reel">Play with teaser</Btn>}
             <input type="range" className="slider scrub grow" min="0" max={dur.toFixed(2)} step="0.05" value={Math.min(dur, Math.max(0, t - c.start))} onChange={(e) => seek(c.start + +e.target.value)} title="Scrub through the reel. It loops; drag the picture, captions or logo to place them." />
             <span className="num muted" style={{ whiteSpace: "nowrap" }}>{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
             <span className="muted" title="Space plays. Arrows switch reels. [ and ] set in and out. A ticks.">⌨︎</span>

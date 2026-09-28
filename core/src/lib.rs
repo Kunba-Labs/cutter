@@ -56,6 +56,8 @@ pub struct Library {
     /// Set by `shutdown`: no job is claimed any more; the process exits once the active ones finish.
     draining: std::sync::atomic::AtomicBool,
     paused: std::sync::atomic::AtomicBool,
+    /// What each recent action changed, newest last, for `undo`.
+    undo: Mutex<Vec<(String, Vec<db::Change>)>>,
 }
 
 impl Library {
@@ -77,6 +79,7 @@ impl Library {
             active: Mutex::new(Vec::new()),
             draining: std::sync::atomic::AtomicBool::new(false),
             paused: std::sync::atomic::AtomicBool::new(false),
+            undo: Mutex::new(Vec::new()),
         });
         std::fs::create_dir_all(lib.out_dir()).map_err(|e| e.to_string())?;
         posters::qr_script(data_dir);
@@ -374,6 +377,7 @@ impl Library {
             "posters": self.all::<Poster>("posters"),
             "tracks": self.all::<Track>("tracks"),
             "jobs": jobs,
+            "undo": self.undo.lock().last().map(|(a, _)| a.clone()),
             "settings": s,
             "tools": tools::detect(&s.claude_bin),
             "mcp": self.mcp.get().map(|m| json!({ "url": m.url(), "token": m.token })),
@@ -425,7 +429,36 @@ impl Library {
         Ok(src)
     }
 
+    /// Every write goes through here. Each action's row changes are journalled so `undo` can put
+    /// them back; files written, jobs queued and posts sent are not undone.
     pub fn dispatch(&self, action: &str, a: Value) -> Result<Value, String> {
+        if action == "undo" {
+            let Some((what, changes)) = self.undo.lock().pop() else { return Err("Nothing to undo".into()) };
+            let db = self.db.lock();
+            for c in changes.iter().rev() {
+                db.restore(c).map_err(|e| e.to_string())?;
+            }
+            drop(db);
+            self.changed();
+            return Ok(json!({ "undone": what, "left": self.undo.lock().len() }));
+        }
+        let outer = db::journal_begin();
+        let out = self.act(action, a);
+        if outer {
+            let changes = db::journal_end();
+            if !changes.is_empty() {
+                let mut u = self.undo.lock();
+                u.push((action.to_string(), changes));
+                // ponytail: 100 steps in memory, gone on restart; persist it if that ever matters.
+                if u.len() > 100 {
+                    u.remove(0);
+                }
+            }
+        }
+        out
+    }
+
+    fn act(&self, action: &str, a: Value) -> Result<Value, String> {
         let s = |k: &str| a[k].as_str().map(str::to_string);
         let id = || s("id").ok_or_else(|| "id required".to_string());
         let out = match action {
@@ -1368,6 +1401,12 @@ mod tests {
         let snap = lib.snapshot();
         assert_eq!(snap["candidates"].as_array().unwrap().len(), 1);
         assert_eq!(snap["sources"][0]["langOverride"], "nl");
+        // Undo walks back: the render queued no undoable rows, so the approve goes first, then the add.
+        assert_eq!(snap["undo"], "approve");
+        lib.dispatch("undo", json!({})).unwrap();
+        assert_eq!(lib.get::<Candidate>("candidates", cid).unwrap().approved, false);
+        lib.dispatch("undo", json!({})).unwrap();
+        assert!(lib.get::<Candidate>("candidates", cid).is_none());
         let mut v = json!({ "a": 1, "o": { "x": 1, "y": 2 } });
         merge(&mut v, &json!({ "o": { "y": 3 }, "b": 2 }));
         assert_eq!(v, json!({ "a": 1, "b": 2, "o": { "x": 1, "y": 3 } }));

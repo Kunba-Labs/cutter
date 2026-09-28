@@ -53,7 +53,7 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   refuses a longer cut; Trim has ± line / ± 1 s at both edges over a ±15 s context strip.
 - **Teaser first.** Each reel opens with its punchline (`candidate.punch_start/end`, found by the
   brain as `punch_seg` + a verbatim quote located on word timings, `brain::punch_times`, ≤ 8 s),
-  then `ffmpeg::TRANSITIONS` (xfade + a pink-noise whoosh), then the reel. The title rides on the
+  then `ffmpeg::TRANSITIONS` (xfade, picture only: no whoosh, the music carries it — Waseem 2026-09-28), then the reel. The title rides on the
   teaser. `settings.intro` / `candidate.intro_on`, `transition`; `punchline` job asks again.
   One filter graph in `ffmpeg::render`: teaser+cut (own ASS each) → xfade → logo → loudnorm → end card.
   `pipeline::plan` decides what a file gets and its length; verify_renders uses the same plan.

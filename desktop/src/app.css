@@ -150,8 +150,18 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 .apply-box > summary { font-weight: 700; font-size: 13px; cursor: pointer; list-style-position: inside; }
 .apply-box > * + * { margin-top: 6px; }
 .slider.scrub { min-width: 80px; }
+/* The teaser→reel transitions in the preview, close to ffmpeg's xfade of the same name (ffmpeg::TRANSITIONS). */
 .teaser-flash { position: absolute; inset: 0; background: #fff; z-index: 4; pointer-events: none; animation: teaser-flash .35s ease-out forwards; }
+.teaser-flash.fade { background: #000; animation-duration: .45s; }
 @keyframes teaser-flash { from { opacity: .85; } to { opacity: 0; } }
+.frame.tx-swoosh video { animation: tx-swoosh .35s ease-out; }
+@keyframes tx-swoosh { from { translate: 35% 0; filter: blur(6px); } to { translate: 0 0; filter: none; } }
+.frame.tx-zoom video { animation: tx-zoom .4s ease-out; }
+@keyframes tx-zoom { from { scale: 1.35; opacity: .4; } to { scale: 1; opacity: 1; } }
+.frame.tx-slide video { animation: tx-slide .3s ease-out; }
+@keyframes tx-slide { from { translate: 0 60%; } to { translate: 0 0; } }
+.frame.tx-blur video { animation: tx-blur .4s ease-out; }
+@keyframes tx-blur { from { filter: blur(14px); } to { filter: none; } }
 .teaser-badge { position: absolute; left: 8px; bottom: 8px; font-size: 12px; background: var(--violet); color: var(--on-accent); padding: 1px 6px; border-radius: 3px; z-index: 4; }
 .range .seg { position: absolute; top: 10px; bottom: 10px; background: var(--rule); border: 0; padding: 0; }
 .tl { display: flex; font-size: 12.5px; color: var(--muted); justify-content: space-between; }

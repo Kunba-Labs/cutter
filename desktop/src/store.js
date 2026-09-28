@@ -75,6 +75,13 @@ export async function tryAct(action, args, okMsg) {
   }
 }
 
+// What ⌘Z undid, in words. Anything not named here reads as its action with spaces.
+const UNDO_NAMES = { update_candidate: "reel edit", approve: "tick", approve_above: "ticks", discard: "discard", edit_word: "word correction", edit_segment: "line correction", apply_look: "copied settings", settings: "settings change", add_candidate: "new reel", clear_reels: "start over (the files stay deleted)", remove_source: "removed lecture" };
+export async function undo() {
+  const r = await tryAct("undo", {});
+  if (r) toast(`Undid ${UNDO_NAMES[r.undone] || r.undone.replace(/_/g, " ")}${r.left ? ` · ${r.left} more` : ""}`, "ok");
+}
+
 async function init() {
   if (http) {
     await refresh();

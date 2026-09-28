@@ -13,6 +13,23 @@ use crate::model::Settings;
 
 pub const TABLES: &[&str] = &["sources", "channels", "inbox", "transcripts", "candidates", "renders", "posts", "posters", "targets", "jobs", "tracks", "kv"];
 
+/// A row as it was before an action changed it: (table, id, Some((json, ord)) or None when it didn't exist).
+pub type Change = (String, String, Option<(String, String)>);
+
+// Undo journal. Only the thread running a dispatch records, so worker writes never land in it.
+// ponytail: jobs and renders are the queue and its output, not edits; they are never undone.
+thread_local! { static JOURNAL: std::cell::RefCell<Option<Vec<Change>>> = const { std::cell::RefCell::new(None) }; }
+const UNJOURNALED: &[&str] = &["jobs", "renders"];
+
+/// Start recording this thread's writes. False when a recording is already running (a nested dispatch).
+pub fn journal_begin() -> bool {
+    JOURNAL.with(|j| { let mut j = j.borrow_mut(); if j.is_some() { false } else { *j = Some(vec![]); true } })
+}
+
+pub fn journal_end() -> Vec<Change> {
+    JOURNAL.with(|j| j.borrow_mut().take().unwrap_or_default())
+}
+
 pub struct Db {
     pub conn: Connection,
 }
@@ -36,7 +53,32 @@ impl Db {
         Ok(Self { conn })
     }
 
+    /// Remember the row's first state within the running recording, if any.
+    fn note(&self, table: &str, id: &str) {
+        if UNJOURNALED.contains(&table) {
+            return;
+        }
+        JOURNAL.with(|j| {
+            if let Some(v) = j.borrow_mut().as_mut() {
+                if !v.iter().any(|(t, i, _)| t == table && i == id) {
+                    let before = self.conn.query_row(&format!("SELECT json, ord FROM {table} WHERE id=?1"), params![id], |r| Ok((r.get(0)?, r.get(1)?))).optional().ok().flatten();
+                    v.push((table.to_string(), id.to_string(), before));
+                }
+            }
+        });
+    }
+
+    /// Put a row back as a Change recorded it (deleting it when it didn't exist).
+    pub fn restore(&self, (table, id, before): &Change) -> rusqlite::Result<()> {
+        match before {
+            Some((json, ord)) => self.conn.execute(&format!("INSERT INTO {table} (id,json,ord) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET json=excluded.json, ord=excluded.ord"), params![id, json, ord]),
+            None => self.conn.execute(&format!("DELETE FROM {table} WHERE id=?1"), params![id]),
+        }?;
+        Ok(())
+    }
+
     pub fn put<T: Serialize>(&self, table: &str, id: &str, ord: &str, v: &T) -> rusqlite::Result<()> {
+        self.note(table, id);
         let json = serde_json::to_string(v).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         self.conn.execute(
             &format!("INSERT INTO {table} (id,json,ord) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET json=excluded.json, ord=excluded.ord"),
@@ -58,6 +100,7 @@ impl Db {
     }
 
     pub fn delete(&self, table: &str, id: &str) -> rusqlite::Result<()> {
+        self.note(table, id);
         self.conn.execute(&format!("DELETE FROM {table} WHERE id=?1"), params![id])?;
         Ok(())
     }
@@ -119,5 +162,25 @@ mod tests {
         db.delete("sources", "s-1").unwrap();
         assert!(db.all::<Source>("sources").unwrap().is_empty());
         assert_eq!(db.settings().max_reel_s, 90);
+    }
+
+    #[test]
+    fn journal_restores_rows() {
+        let db = Db::open_in_memory().unwrap();
+        let a = Source { id: "s-1".into(), title: "old".into(), ..Default::default() };
+        db.put("sources", &a.id, "1", &a).unwrap();
+        assert!(journal_begin());
+        assert!(!journal_begin(), "nested dispatch keeps the outer recording");
+        db.put("sources", "s-1", "1", &Source { title: "new".into(), ..a.clone() }).unwrap();
+        db.put("sources", "s-1", "1", &Source { title: "newer".into(), ..a.clone() }).unwrap();
+        db.put("sources", "s-2", "2", &Source { id: "s-2".into(), ..Default::default() }).unwrap();
+        db.put("jobs", "j-1", "", &a).unwrap();
+        let ch = journal_end();
+        assert_eq!(ch.len(), 2, "one entry per row, jobs left out");
+        for c in ch.iter().rev() {
+            db.restore(c).unwrap();
+        }
+        assert_eq!(db.get::<Source>("sources", "s-1").unwrap().unwrap().title, "old");
+        assert!(db.get::<Source>("sources", "s-2").unwrap().is_none());
     }
 }

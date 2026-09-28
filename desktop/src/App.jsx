@@ -1,5 +1,5 @@
 import { Component, useEffect, useState } from "react";
-import { useStore, act, refresh } from "./store.js";
+import { useStore, act, refresh, undo } from "./store.js";
 import { Btn, I } from "./ui.jsx";
 import Library from "./screens/Library.jsx";
 import Transcript from "./screens/Transcript.jsx";
@@ -48,6 +48,8 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key === "n") { e.preventDefault(); setAdding(true); }
       if ((e.metaKey || e.ctrlKey) && e.key === ",") { e.preventDefault(); go("settings"); }
       if ((e.metaKey || e.ctrlKey) && e.key === "r") { e.preventDefault(); refresh(); }
+      // ⌘Z undoes the last change to the library; inside a text field it stays the field's own undo.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "z" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) { e.preventDefault(); undo(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

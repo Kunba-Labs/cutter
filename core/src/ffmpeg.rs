@@ -201,20 +201,21 @@ fn logo_filters(l: &LogoSpec, lk: usize, w: i64, v: &str) -> (Vec<String>, Strin
     )
 }
 
-/// The teaser→reel transitions: (xfade name or None for a hard cut, seconds, whoosh sound).
-pub const TRANSITIONS: &[(&str, Option<&str>, f64, bool)] = &[
-    ("swoosh", Some("smoothleft"), 0.35, true),
-    ("zoom", Some("zoomin"), 0.4, true),
-    ("slide", Some("slideup"), 0.3, true),
-    ("blur", Some("hblur"), 0.4, true),
-    ("flash", Some("fadewhite"), 0.3, false),
-    ("fade", Some("fade"), 0.4, false),
-    ("cut", None, 0.0, false),
+/// The teaser→reel transitions, picture only (the music carries the sound): (xfade name or None for a
+/// hard cut, seconds).
+pub const TRANSITIONS: &[(&str, Option<&str>, f64)] = &[
+    ("swoosh", Some("smoothleft"), 0.35),
+    ("zoom", Some("zoomin"), 0.4),
+    ("slide", Some("slideup"), 0.3),
+    ("blur", Some("hblur"), 0.4),
+    ("flash", Some("fadewhite"), 0.3),
+    ("fade", Some("fade"), 0.4),
+    ("cut", None, 0.0),
 ];
 
-pub fn transition(name: &str) -> (Option<&'static str>, f64, bool) {
+pub fn transition(name: &str) -> (Option<&'static str>, f64) {
     let t = TRANSITIONS.iter().find(|t| t.0 == name).unwrap_or(&TRANSITIONS[0]);
-    (t.1, t.2, t.3)
+    (t.1, t.2)
 }
 
 /// Length of the finished file: teaser + cut − the overlap of the transition + end card.
@@ -291,7 +292,7 @@ pub fn proxy(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64,
 }
 
 /// H.264 at the chosen quality, AAC 192k, normalised to `loudness` LUFS. One filter graph: the teaser
-/// and the cut (each with its own captions), the transition with a whoosh, the logo over both, the end
+/// and the cut (each with its own captions), the transition, the logo over both, the end
 /// card, then the background music under all of it. Progress from `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
 pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<(), String> {
     let dur = (r.end - r.start).max(0.1);
@@ -301,7 +302,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
     let base = format!("{},scale={w}:{h}:flags=lanczos,setsar=1,fps={fps_s},format=yuv420p,settb=AVTB", crop_filter_z(r.src_w, r.src_h, w, h, r.crop_x, r.crop_y, r.crop_z));
     let with_ass = |a: Option<&Path>| match a { Some(a) => format!("{base},{}", ass_filter(a)), None => base.clone() };
     let pcm = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo";
-    let (tx, tx_d, whoosh) = r.intro.as_ref().map(|i| transition(i.transition)).unwrap_or((None, 0.0, false));
+    let (tx, tx_d) = r.intro.as_ref().map(|i| transition(i.transition)).unwrap_or((None, 0.0));
     let card_s = r.end_card.map(|(_, s)| s).unwrap_or(0.0);
     let total = total_seconds(r.start, r.end, r.intro.as_ref().map(|i| (i.start, i.end, i.transition)), card_s) + r.tail;
     let mut run = |encoder: &[&str]| -> Result<(), String> {
@@ -336,15 +337,6 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
                 None => fc.push("[iv][ia][mv][ma]concat=n=2:v=1:a=1[jv][ja]".into()),
             }
             (v, a) = ("jv".into(), "ja".into());
-            if whoosh {
-                // Pink noise swelling and dying over the transition: the swoosh.
-                let ws = 0.5;
-                let wk = input(&mut cmd, vec!["-f".into(), "lavfi".into(), "-t".into(), format!("{ws}"), "-i".into(), "anoisesrc=r=48000:c=pink:a=0.35".into()]);
-                let at = ((p - tx_d / 2.0 - ws / 2.0).max(0.0) * 1000.0) as i64;
-                fc.push(format!("[{wk}:a]highpass=f=300,lowpass=f=6000,afade=t=in:d={:.2},afade=t=out:st={:.2}:d={:.2},{pcm},adelay={at}:all=1[wh]", ws * 0.6, ws * 0.6, ws * 0.4));
-                fc.push(format!("[{a}][wh]amix=inputs=2:duration=first:normalize=0[jw]"));
-                a = "jw".into();
-            }
         }
         // The logo goes over the whole file when it stays on the end card, else over the reel only.
         let logo_last = r.end_card.is_some() && r.logo.as_ref().is_some_and(|l| l.on_card);

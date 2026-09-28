@@ -48,8 +48,8 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key === "n") { e.preventDefault(); setAdding(true); }
       if ((e.metaKey || e.ctrlKey) && e.key === ",") { e.preventDefault(); go("settings"); }
       if ((e.metaKey || e.ctrlKey) && e.key === "r") { e.preventDefault(); refresh(); }
-      // ⌘Z undoes the last change to the library; inside a text field it stays the field's own undo.
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "z" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) { e.preventDefault(); undo(); }
+      // ⌘Z / ⇧⌘Z undo and redo the last change to the library; inside a text field they stay the field's own.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) { e.preventDefault(); undo(e.shiftKey); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

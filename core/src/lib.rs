@@ -58,6 +58,8 @@ pub struct Library {
     paused: std::sync::atomic::AtomicBool,
     /// What each recent action changed, newest last, for `undo`.
     undo: Mutex<Vec<(String, Vec<db::Change>)>>,
+    /// What undo took back, for `redo`; any new change clears it.
+    redo: Mutex<Vec<(String, Vec<db::Change>)>>,
 }
 
 impl Library {
@@ -80,6 +82,7 @@ impl Library {
             draining: std::sync::atomic::AtomicBool::new(false),
             paused: std::sync::atomic::AtomicBool::new(false),
             undo: Mutex::new(Vec::new()),
+            redo: Mutex::new(Vec::new()),
         });
         std::fs::create_dir_all(lib.out_dir()).map_err(|e| e.to_string())?;
         posters::qr_script(data_dir);
@@ -378,6 +381,7 @@ impl Library {
             "tracks": self.all::<Track>("tracks"),
             "jobs": jobs,
             "undo": self.undo.lock().last().map(|(a, _)| a.clone()),
+            "redo": self.redo.lock().last().map(|(a, _)| a.clone()),
             "settings": s,
             "tools": tools::detect(&s.claude_bin),
             "mcp": self.mcp.get().map(|m| json!({ "url": m.url(), "token": m.token })),
@@ -432,21 +436,22 @@ impl Library {
     /// Every write goes through here. Each action's row changes are journalled so `undo` can put
     /// them back; files written, jobs queued and posts sent are not undone.
     pub fn dispatch(&self, action: &str, a: Value) -> Result<Value, String> {
-        if action == "undo" {
-            let Some((what, changes)) = self.undo.lock().pop() else { return Err("Nothing to undo".into()) };
+        if action == "undo" || action == "redo" {
+            let (from, to) = if action == "undo" { (&self.undo, &self.redo) } else { (&self.redo, &self.undo) };
+            let Some((what, changes)) = from.lock().pop() else { return Err(format!("Nothing to {action}")) };
             let db = self.db.lock();
-            for c in changes.iter().rev() {
-                db.restore(c).map_err(|e| e.to_string())?;
-            }
+            let back = changes.iter().rev().map(|c| db.swap(c)).collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
             drop(db);
+            to.lock().push((what.clone(), back));
             self.changed();
-            return Ok(json!({ "undone": what, "left": self.undo.lock().len() }));
+            return Ok(json!({ "action": what, "left": from.lock().len() }));
         }
         let outer = db::journal_begin();
         let out = self.act(action, a);
         if outer {
             let changes = db::journal_end();
             if !changes.is_empty() {
+                self.redo.lock().clear();
                 let mut u = self.undo.lock();
                 u.push((action.to_string(), changes));
                 // ponytail: 100 steps in memory, gone on restart; persist it if that ever matters.
@@ -1407,6 +1412,14 @@ mod tests {
         assert_eq!(lib.get::<Candidate>("candidates", cid).unwrap().approved, false);
         lib.dispatch("undo", json!({})).unwrap();
         assert!(lib.get::<Candidate>("candidates", cid).is_none());
+        // Redo brings both back in order; a new change then drops what was left to redo.
+        lib.dispatch("redo", json!({})).unwrap();
+        assert!(lib.get::<Candidate>("candidates", cid).is_some());
+        lib.dispatch("redo", json!({})).unwrap();
+        assert!(lib.get::<Candidate>("candidates", cid).unwrap().approved);
+        lib.dispatch("undo", json!({})).unwrap();
+        lib.dispatch("approve", json!({ "ids": [cid], "approved": false })).unwrap();
+        assert!(lib.dispatch("redo", json!({})).is_err());
         let mut v = json!({ "a": 1, "o": { "x": 1, "y": 2 } });
         merge(&mut v, &json!({ "o": { "y": 3 }, "b": 2 }));
         assert_eq!(v, json!({ "a": 1, "b": 2, "o": { "x": 1, "y": 3 } }));

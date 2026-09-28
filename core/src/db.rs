@@ -77,6 +77,14 @@ impl Db {
         Ok(())
     }
 
+    /// Restore a Change and hand back its opposite (the row as it was just before), for redo.
+    pub fn swap(&self, c: &Change) -> rusqlite::Result<Change> {
+        let (table, id, _) = c;
+        let now = self.conn.query_row(&format!("SELECT json, ord FROM {table} WHERE id=?1"), params![id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+        self.restore(c)?;
+        Ok((table.clone(), id.clone(), now))
+    }
+
     pub fn put<T: Serialize>(&self, table: &str, id: &str, ord: &str, v: &T) -> rusqlite::Result<()> {
         self.note(table, id);
         let json = serde_json::to_string(v).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore, tryAct, fileUrl, ago } from "../store.js";
-import { Panel, Btn, Check, Text, Dot, Seg, I, Brand, CHANNEL_NAMES } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Dot, Seg, I, Brand, CHANNEL_NAMES, useSize, Grip } from "../ui.jsx";
 
 const CH = [["youtube", "YouTube Shorts"], ["instagram", "Instagram Reels"], ["tiktok", "TikTok"], ["facebook", "Facebook"]];
 const dayKey = (d) => d.toISOString().slice(0, 10);
@@ -10,6 +10,8 @@ const HOUR = 56; // px per hour on the grid
 const GUTTER = 52;
 
 export default function Publish({ go }) {
+  const [sz0, setsz0] = useSize("publish.left", 260);
+  const [sz1, setsz1] = useSize("publish.right", 300);
   const s = useStore();
   const [week, setWeek] = useState(0);
   const [selId, setSelId] = useState(null);
@@ -42,7 +44,7 @@ export default function Publish({ go }) {
 
   return (
     <div className="main">
-      <div className="col" style={{ width: 260, flexShrink: 0 }}>
+      <div className="col" style={{ width: sz0, flexShrink: 0 }}>
         <Panel title="Post to" right={<Btn small onClick={() => go("settings")}>Edit</Btn>} style={{ flexShrink: 0 }}>
           {!targets.length && <span className="hint">No targets yet. Add one in Settings.</span>}
           {targets.map((t) => <div key={t.id} style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13.5 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Brand id={t.kind === "folder" ? "youtube" : t.kind} mono={!linked(t)} style={{ opacity: linked(t) ? 1 : 0.55 }} /><b className={`grow ell ${linked(t) ? "" : "sec"}`}>{t.name}</b><span className="muted">{linked(t) ? "" : t.kind === "youtube" ? "not connected" : "by hand"}</span></div>
@@ -55,6 +57,7 @@ export default function Publish({ go }) {
           {!unscheduled.length && <span className="hint">Every rendered reel is on the calendar.</span>}
         </Panel>
       </div>
+      <Grip value={sz0} set={setsz0} dir={1} reset={260} />
       <div className="col grow">
         <div className="panel grow">
           <div className="panel-head"><span>Calendar</span><span className="sub">{days[0].toLocaleDateString([], { day: "numeric", month: "short" })} – {days[6].toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}</span><span className="grow" /><Seg value={view} onChange={setView} options={[["week", "Week"], ["list", "List"]]} /><Btn small icon onClick={() => setWeek(week - 1)} aria-label="Previous week">{I.prev}</Btn><Btn small onClick={() => setWeek(0)}>Today</Btn><Btn small icon onClick={() => setWeek(week + 1)} aria-label="Next week">{I.next}</Btn></div>
@@ -83,7 +86,8 @@ export default function Publish({ go }) {
           <div className="rows">{s.posts.filter((p) => p.status === "posted" || p.status === "failed").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30).map((p) => <div key={p.id} className="row" style={{ gridTemplateColumns: "70px minmax(0,1fr) 110px 110px minmax(0,1fr)", minHeight: 26 }} onClick={() => setSelId(p.id)}><span className="muted">{ago(p.updatedAt)}</span><span className="ell">{p.title}</span><span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brand id={p.channel} size={12} />{CHANNEL_NAMES[p.channel]}</span><span className={p.status === "posted" ? "mint" : "coral"}>{p.status}</span><span className="mono ell muted">{p.providerId ? (p.channel === "youtube" ? `youtu.be/${p.providerId}` : p.providerId) : p.error}</span></div>)}</div>
         </Panel>
       </div>
-      <div className="panel" style={{ width: 300, flexShrink: 0 }}>
+      <Grip value={sz1} set={setsz1} dir={-1} reset={300} />
+      <div className="panel" style={{ width: sz1, flexShrink: 0 }}>
         <div className="panel-head"><span className="grow">Post</span>{post && <span className={post.status === "posted" ? "mint" : post.status === "failed" ? "coral" : "pink"} style={{ fontWeight: 500 }}>{post.status}</span>}</div>
         {!post ? <div className="empty">Pick a post on the calendar, or click an unscheduled reel to plan it.</div> : (
           <>

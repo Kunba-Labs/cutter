@@ -67,7 +67,12 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   (additions picked up, removals respected). Per reel `music` = random | none | track id (random is
   a stable hash of the reel id, same in `store.js randomTrack`), `music_volume`; it loops, fades,
   ducks under speech (sidechaincompress). Everything is normalised last to `loudness` (default −11
-  LUFS, per reel overridable). The clean cut gets no music.
+  LUFS, per reel overridable). The clean cut gets no music. Without an end card the music plays on
+  `music_tail` s (last frame held, fading to black; `Plan.tail`); with one it plays under the card.
+- **End card** = poster cards (`use_end_cards`) or any picture (`end_card_image`): centred on
+  `end_card.background` or on its own blur; `image`/`background` are kept so a colour change remakes
+  the set, and cleared when poster cards take over. Length 0.5–10 s everywhere.
+- **Panels resize** by the `Grip` in the gap (`ui.jsx useSize`, remembered in localStorage per key).
 - **Nothing posts without a confirm** unless a channel says `auto_schedule`. YouTube uploads
   as private with `publishAt`; TikTok/Meta are not linked (need approved apps): a confirmed post
   there fails with the file path + caption.txt for a manual upload. Messy is out (Waseem, 2026-09-26).

@@ -56,6 +56,14 @@ a { color: var(--tiffany-text); text-decoration: none; }
 .status { display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--sec); }
 
 .main { flex-grow: 1; display: flex; gap: 10px; min-height: 0; }
+/* Panel resize handles: they live in the 10px gap between panels. */
+.grip { flex: 0 0 10px; margin: 0 -10px 0 -10px; position: relative; z-index: 5; touch-action: none; }
+.grip-x { cursor: col-resize; align-self: stretch; }
+.grip-y { cursor: row-resize; margin: -10px 0; flex-basis: 10px; }
+.grip::after { content: ""; position: absolute; border-radius: 2px; background: var(--tiffany); opacity: 0; transition: opacity .15s; }
+.grip-x::after { top: 0; bottom: 0; left: 4px; width: 2px; }
+.grip-y::after { left: 0; right: 0; top: 4px; height: 2px; }
+.grip:hover::after { opacity: .7; }
 .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
 .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .panel-head { height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--head); border-bottom: 1px solid var(--rule); font-size: 13.5px; font-weight: 600; }
@@ -136,6 +144,12 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 /* The teaser (punchline played first): violet, in the strip and on its words. */
 .range .punch { position: absolute; bottom: 0; height: 6px; background: var(--violet); border-radius: 2px; }
 .words span.punch { box-shadow: inset 0 -2px 0 var(--violet); }
+.tail-fade { position: absolute; inset: 0; background: #000; z-index: 4; pointer-events: none; animation: tail-fade linear forwards; }
+@keyframes tail-fade { from { opacity: 0; } to { opacity: 1; } }
+.apply-box { background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 10px; }
+.apply-box > summary { font-weight: 700; font-size: 13px; cursor: pointer; list-style-position: inside; }
+.apply-box > * + * { margin-top: 6px; }
+.slider.scrub { min-width: 80px; }
 .teaser-flash { position: absolute; inset: 0; background: #fff; z-index: 4; pointer-events: none; animation: teaser-flash .35s ease-out forwards; }
 @keyframes teaser-flash { from { opacity: .85; } to { opacity: 0; } }
 .teaser-badge { position: absolute; left: 8px; bottom: 8px; font-size: 12px; background: var(--violet); color: var(--on-accent); padding: 1px 6px; border-radius: 3px; z-index: 4; }

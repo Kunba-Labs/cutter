@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useStore, tryAct, fmtLong, ago } from "../store.js";
-import { Panel, Btn, Check, Text, Dot, Bar, I, Brand } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Dot, Bar, I, Brand, useSize, Grip } from "../ui.jsx";
 
 export default function Inbox({ go, setAdding }) {
+  const [sz0, setsz0] = useSize("inbox.left", 240);
   const s = useStore();
   const [selId, setSelId] = useState(null);
   const ch = s.channels.find((c) => c.id === selId) || s.channels[0];
@@ -14,7 +15,7 @@ export default function Inbox({ go, setAdding }) {
 
   return (
     <div className="main">
-      <div className="col" style={{ width: 240, flexShrink: 0 }}>
+      <div className="col" style={{ width: sz0, flexShrink: 0 }}>
         <div className="panel" style={{ flexShrink: 0 }}>
           <div className="panel-head"><span className="grow">Watched channels</span><Btn small icon primary onClick={() => setAdding(true)} aria-label="Watch a channel">{I.plus}</Btn></div>
           {s.channels.length === 0 && <div className="empty">No channels yet.</div>}
@@ -38,6 +39,7 @@ export default function Inbox({ go, setAdding }) {
           </Panel>
         )}
       </div>
+      <Grip value={sz0} set={setsz0} dir={1} reset={240} />
       <div className="col grow">
         <div className="panel" style={{ flexShrink: 0, maxHeight: "55%" }}>
           <div className="panel-head"><span>New uploads</span><span className="sub">{fresh.length}</span><span className="grow" /><Btn small onClick={() => tryAct("check_channel", ch ? { id: ch.id } : {}, "Checking")} disabled={!s.channels.length}>Check now</Btn><Btn small primary disabled={!fresh.length} onClick={async () => { for (const i of fresh) await tryAct("process_inbox", { id: i.id }); go("library", { sourceId: null }); }}>Process all</Btn></div>

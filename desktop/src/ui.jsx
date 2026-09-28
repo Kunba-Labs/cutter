@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export const Panel = ({ title, sub, right, children, style, className = "", body = true }) => (
   <div className={`panel ${className}`} style={style}>
@@ -126,4 +126,28 @@ export function Menu({ at, items, onClose }) {
   }, [onClose]);
   const x = Math.min(at.x, window.innerWidth - 200), y = Math.min(at.y, window.innerHeight - items.length * 28 - 12);
   return <div className="menu" style={{ left: x, top: y }} onPointerDown={(e) => e.stopPropagation()}>{items.map((it, i) => <button key={i} className={`menu-item ${it.danger ? "danger" : ""}`} disabled={it.disabled} onClick={() => { onClose(); it.onClick(); }}>{it.label}</button>)}</div>;
+}
+
+/* A panel size the person drags, remembered per key on this machine. */
+export function useSize(key, def, min = 160, max = 900) {
+  const [v, setV] = useState(() => { try { return Number(localStorage.getItem(`cuttar.size.${key}`)) || def; } catch { return def; } });
+  const set = (n) => { const x = Math.round(Math.min(max, Math.max(min, n))); setV(x); try { localStorage.setItem(`cuttar.size.${key}`, String(x)); } catch {} };
+  return [v, set];
+}
+
+/* The drag handle between two panels, sitting in the gap. `dir` -1 when the panel it sizes is on the
+   right (or below): dragging towards it makes it bigger. Double-click restores `reset`. */
+export function Grip({ value, set, dir = 1, axis = "x", reset }) {
+  const d = useRef(null);
+  return (
+    <div
+      className={`grip grip-${axis}`}
+      onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); d.current = { p: axis === "x" ? e.clientX : e.clientY, v: value }; }}
+      onPointerMove={(e) => { if (d.current) set(d.current.v + dir * ((axis === "x" ? e.clientX : e.clientY) - d.current.p)); }}
+      onPointerUp={() => { d.current = null; }}
+      onPointerCancel={() => { d.current = null; }}
+      onDoubleClick={() => reset != null && set(reset)}
+      title="Drag to resize. Double-click resets."
+    />
+  );
 }

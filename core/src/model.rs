@@ -473,6 +473,10 @@ pub struct EndCard {
     pub paths: Value,
     /// The poster the set came from, for the UI.
     pub poster_id: Option<String>,
+    /// A chosen picture the set was made from, and what surrounds it: a colour ("#RRGGBB"), or
+    /// empty for the picture blurred behind itself. Kept so a new colour can remake the set.
+    pub image: String,
+    pub background: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -497,6 +501,8 @@ pub struct Settings {
     /// Background music by default: "random" (a stable pick per reel) | "none".
     pub music: String,
     pub music_volume: f64,
+    /// Seconds the music plays on after a reel without an end card (the last frame holds and fades out).
+    pub music_tail: f64,
     /// Loudness every reel is normalised to, LUFS (platforms play at about −14; −11 is louder).
     pub loudness: f64,
     pub auto_detect: bool,
@@ -543,6 +549,7 @@ impl Default for Settings {
             logo: Logo::default(),
             music: "random".into(),
             music_volume: 0.3,
+            music_tail: 3.0,
             loudness: -11.0,
             auto_detect: true,
             polish_captions: true,
@@ -551,7 +558,7 @@ impl Default for Settings {
             translate_to: String::new(),
             caption_style: CaptionStyle::default(),
             caption_templates: caption_templates(),
-            end_card: EndCard { enabled: false, seconds: 2.5, paths: serde_json::json!({}), poster_id: None },
+            end_card: EndCard { enabled: false, seconds: 2.5, paths: serde_json::json!({}), poster_id: None, image: String::new(), background: String::new() },
             render_quality: "best".into(),
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
             channel_name: String::new(),

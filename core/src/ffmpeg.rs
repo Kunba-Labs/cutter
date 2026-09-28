@@ -155,6 +155,8 @@ pub struct RenderSpec<'a> {
     pub end_card: Option<(&'a Path, f64)>,
     /// Background track (looped to length) and its level (0..1); it ducks under speech.
     pub music: Option<(&'a Path, f64)>,
+    /// Seconds the last frame holds (fading to black) after the reel so the music can play on.
+    pub tail: f64,
     /// Loudness of the finished file, LUFS.
     pub loudness: f64,
     /// The source has an audio stream (a screen recording may not).
@@ -284,7 +286,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
     let pcm = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo";
     let (tx, tx_d, whoosh) = r.intro.as_ref().map(|i| transition(i.transition)).unwrap_or((None, 0.0, false));
     let card_s = r.end_card.map(|(_, s)| s).unwrap_or(0.0);
-    let total = total_seconds(r.start, r.end, r.intro.as_ref().map(|i| (i.start, i.end, i.transition)), card_s);
+    let total = total_seconds(r.start, r.end, r.intro.as_ref().map(|i| (i.start, i.end, i.transition)), card_s) + r.tail;
     let mut run = |encoder: &[&str]| -> Result<(), String> {
         let mut cmd = Command::new(crate::tools::ffmpeg_bin());
         cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]);
@@ -333,6 +335,13 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
             fc.push(format!("[{lk}:v]scale={lw}:-2,format=rgba,colorchannelmixer=aa={:.2}[lg]", l.opacity.clamp(0.05, 1.0)));
             fc.push(format!("[{v}][lg]overlay=x='(W-w)*{:.4}':y='(H-h)*{:.4}',format=yuv420p[lv]", l.x.clamp(0.0, 1.0), l.y.clamp(0.0, 1.0)));
             v = "lv".into();
+        }
+        if r.tail > 0.0 {
+            // The picture holds and fades out; the speech track gets silence to match.
+            let body = total_seconds(r.start, r.end, r.intro.as_ref().map(|i| (i.start, i.end, i.transition)), 0.0);
+            fc.push(format!("[{v}]tpad=stop_mode=clone:stop_duration={t:.2},fade=t=out:st={body:.3}:d={t:.2}[tv]", t = r.tail));
+            fc.push(format!("[{a}]apad=pad_dur={:.2}[ta]", r.tail));
+            (v, a) = ("tv".into(), "ta".into());
         }
         if let Some((card, secs)) = r.end_card {
             let ck = input(&mut cmd, vec!["-loop".into(), "1".into(), "-framerate".into(), fps_s.clone(), "-t".into(), format!("{secs:.2}"), "-i".into(), card.display().to_string()]);
@@ -589,6 +598,17 @@ pub fn still(poster: &Path, out: &Path, width: i64, height: i64, text: &str, fon
     r
 }
 
+/// A picture centred on a flat colour (`#RRGGBB`), fitted inside 80 % of the frame; transparency shows the colour.
+pub fn card_on_color(image: &Path, out: &Path, width: i64, height: i64, color: &str) -> Result<(), String> {
+    let hex = color.trim_start_matches('#');
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("not a colour: {color}"));
+    }
+    let (fw, fh) = (width * 4 / 5, height * 4 / 5);
+    let filter = format!("color=c=0x{hex}:s={width}x{height}[bg];[0:v]scale={fw}:{fh}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,format=rgb24");
+    crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error"]).arg("-i").arg(image).args(["-filter_complex", &filter, "-frames:v", "1"]).arg(out)).map(|_| ())
+}
+
 /// Poster crops for feed 4:5 and story 9:16: the poster padded on a matching
 /// blurred background, so nothing is cut off.
 pub fn poster_pad(poster: &Path, out: &Path, width: i64, height: i64) -> Result<(), String> {
@@ -615,7 +635,7 @@ mod tests {
         assert!(ok(&["-f", "lavfi", "-i", "color=red@0.5:s=200x80,format=rgba", "-frames:v", "1", logo.to_str().unwrap()]));
         assert!(ok(&["-f", "lavfi", "-i", "color=blue:s=1080x1920", "-frames:v", "1", card.to_str().unwrap()]));
         let out = d.path().join("out.mp4");
-        let spec = RenderSpec { src: &src, start: 2.0, end: 6.0, out: &out, width: 1080, height: 1920, src_w: 640, src_h: 360, crop_x: 0.5, crop_y: 0.5, crop_z: 1.0, ass: None, intro: Some(Intro { start: 8.0, end: 10.0, ass: None, transition: "swoosh" }), logo: Some(LogoSpec { path: &logo, x: 1.0, y: 0.0, size: 0.2, opacity: 0.8 }), end_card: Some((&card, 1.0)), music: Some((&src, 0.3)), loudness: -11.0, has_audio: true, fps: 30.0, quality: "fast" };
+        let spec = RenderSpec { src: &src, start: 2.0, end: 6.0, out: &out, width: 1080, height: 1920, src_w: 640, src_h: 360, crop_x: 0.5, crop_y: 0.5, crop_z: 1.0, ass: None, intro: Some(Intro { start: 8.0, end: 10.0, ass: None, transition: "swoosh" }), logo: Some(LogoSpec { path: &logo, x: 1.0, y: 0.0, size: 0.2, opacity: 0.8 }), end_card: Some((&card, 1.0)), music: Some((&src, 0.3)), tail: 0.0, loudness: -11.0, has_audio: true, fps: 30.0, quality: "fast" };
         render(&spec, |_, _| {}, |_| {}).unwrap();
         let p = probe(&out).unwrap();
         let want = total_seconds(2.0, 6.0, Some((8.0, 10.0, "swoosh")), 1.0);

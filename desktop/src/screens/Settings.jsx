@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useStore, tryAct, fileUrl, fmtLong, FORMATS, TRANSITIONS, LOUDNESS } from "../store.js";
-import { Panel, Btn, Check, Text, Seg, Dot, Brand, Confirm, I } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Seg, Dot, Brand, Confirm, I, useSize, Grip } from "../ui.jsx";
 
 const SECTIONS = [["general", "General"], ["engines", "Engines"], ["channels", "Channels"], ["captions", "Captions"], ["music", "Music"], ["posters", "Posters"], ["mcp", "Claude and terminal"]];
 
 export default function Settings({ go }) {
+  const [sz0, setsz0] = useSize("settings.left", 200);
   const s = useStore();
   const st = s.settings;
   const [sec, setSec] = useState("channels");
@@ -20,12 +21,13 @@ export default function Settings({ go }) {
 
   return (
     <div className="main">
-      <div className="panel" style={{ width: 200, flexShrink: 0 }}>
+      <div className="panel" style={{ width: sz0, flexShrink: 0 }}>
         <div className="panel-head">Settings</div>
         {SECTIONS.map(([k, l]) => <div key={k} className={`nav-item ${sec === k ? "on" : ""}`} style={{ padding: "7px 10px" }} onClick={() => setSec(k)}>{l}</div>)}
         <span className="grow" />
         <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch", gap: 3, fontSize: 13, color: "var(--muted)" }}><span>Cuttar 0.1</span><span className="ell">{s.paths.dataDir}</span></div>
       </div>
+      <Grip value={sz0} set={setsz0} dir={1} reset={200} />
       <div className="col grow">
         {sec === "general" && (
           <Panel title="General">
@@ -42,7 +44,7 @@ export default function Settings({ go }) {
             <Row label="Export quality"><select className="input" style={{ width: 180 }} value={st.renderQuality || "best"} onChange={(e) => patch({ renderQuality: e.target.value })}><option value="best">Best, slow</option><option value="good">Good</option><option value="fast">Fast, hardware</option></select><span className="hint">Best takes a minute or two per reel. Fast is near instant and a bit softer.</span></Row>
             <Row label="Parallel jobs"><input className="input" style={{ width: 70 }} type="number" min="1" max="4" value={st.parallelJobs} onChange={(e) => patch({ parallelJobs: +e.target.value })} /><span className="hint">Applies after a restart. One transcript at a time.</span></Row>
             <Row label="Channel name"><Text style={W} value={st.channelName} onCommit={(v) => patch({ channelName: v })} placeholder="shown as the watermark" /></Row>
-            <Row label="End card"><Check label="Append the closing card to every render" checked={st.endCard?.enabled} onChange={(v) => patch({ endCard: { enabled: v } })} /><input className="input num" type="number" min="0.5" max="8" step="0.5" style={{ width: 64 }} value={st.endCard?.seconds ?? 2.5} onChange={(e) => patch({ endCard: { seconds: +e.target.value || 2.5 } })} /><span className="hint">seconds.{st.endCard?.paths?.["9x16"] ? "" : " None set yet."}</span><Btn small onClick={async () => { const p = await tryAct("choose_file", { kind: "image", prompt: "Choose the end card image" }); if (p) tryAct("end_card_image", { path: p }, "End card set"); }}>Choose image…</Btn><Btn small onClick={() => go("posters")}>From a poster</Btn></Row>
+            <Row label="End card"><Check label="Append the closing card to every render" checked={st.endCard?.enabled} onChange={(v) => patch({ endCard: { enabled: v } })} /><input className="input num" type="number" min="0.5" max="10" step="0.5" style={{ width: 64 }} value={st.endCard?.seconds ?? 2.5} onChange={(e) => patch({ endCard: { seconds: +e.target.value || 2.5 } })} /><span className="hint">seconds.{st.endCard?.paths?.["9x16"] ? "" : " None set yet."}</span><Btn small onClick={async () => { const p = await tryAct("choose_file", { kind: "image", prompt: "Choose the end card image" }); if (p) tryAct("end_card_image", { path: p, background: st.endCard?.background || "#000000" }, "End card set: colour and length on the Reels screen"); }}>Choose image…</Btn><Btn small onClick={() => go("posters")}>From a poster</Btn></Row>
             <Row label="Glossary"><Text style={W} value={(st.glossary || []).join(", ")} onCommit={(v) => patch({ glossary: v.split(",").map((x) => x.trim()).filter(Boolean) })} /><span className="hint">names and terms whisper should spell right</span></Row>
           </Panel>
         )}
@@ -160,6 +162,7 @@ function Music({ s, st, patch }) {
         <Row label="Add a link"><input className="input" style={{ width: 420 }} value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="YouTube video or playlist, e.g. …watch?v=…&list=…" /><Btn primary disabled={busy || !url.trim()} onClick={add}>{busy ? "Reading…" : "Add"}</Btn></Row>
         <Row label="Every reel gets"><Seg value={st.music || "random"} onChange={(v) => patch({ music: v })} options={[["random", "A random track"], ["none", "No music"]]} /><span className="hint">Random is stable: the same reel keeps its track. Pick one per reel on the Reels screen.</span></Row>
         <Row label="Music level"><input type="range" className="slider" style={{ width: 200 }} min="0" max="1" step="0.05" value={st.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num" style={{ width: 40 }}>{Math.round((st.musicVolume ?? 0.3) * 100)}%</span><span className="hint">It ducks under the speaker by itself.</span></Row>
+        <Row label="Music after the reel"><input className="input num" type="number" min="0" max="10" step="0.5" style={{ width: 64 }} value={st.musicTail ?? 3} onChange={(e) => patch({ musicTail: Math.max(0, +e.target.value) })} /><span className="hint">seconds the last frame fades out while the music plays on, when a reel has no end card. 0 is off.</span></Row>
         <Row label="Reel loudness"><select className="input" style={{ width: 180 }} value={st.loudness ?? -11} onChange={(e) => patch({ loudness: +e.target.value })}>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><span className="hint">Every render is normalised to this. Per reel on the Reels screen.</span></Row>
       </Panel>
       {lists.map((l) => { const ts = tracks.filter((t) => t.listUrl === l); return (

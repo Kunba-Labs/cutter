@@ -484,7 +484,7 @@ impl Library {
                     let (w, h, _) = ffmpeg::format_spec(&r.format);
                     let src = self.get::<Source>("sources", &r.source_id);
                     let want_audio = src.as_ref().map(|s| s.meta["hasAudio"].as_bool().unwrap_or(true)).unwrap_or(true);
-                    let want = pipeline::plan(&st, &c, src.as_ref().and_then(|s| s.duration), &r.format).seconds();
+                    let want = pipeline::plan(&st, &c, src.as_ref().and_then(|s| s.duration), &r.format, r.format != "clean" && pipeline::reel_music(self, &st, &c).is_some()).seconds();
                     match ffmpeg::probe(Path::new(&r.path)) {
                         Ok(pr) => {
                             let issues = ffmpeg::quality_issues(&pr, w, h, want, want_audio);
@@ -845,18 +845,40 @@ impl Library {
                 if p.is_empty() { Value::Null } else { json!(p) }
             }
             "end_card_image" => {
-                // Any picture as the end card: padded on its own blur into the three shapes.
-                let path = s("path").ok_or("path required")?;
+                // Any picture as the end card, in the three shapes: centred on `background` (#RRGGBB), or
+                // padded on its own blur when that is empty. Without `path` the last picture is remade
+                // (a new colour); `seconds` sets the length.
+                let mut st = self.settings();
+                let path = s("path").unwrap_or_else(|| st.end_card.image.clone());
+                if path.is_empty() {
+                    return Err("choose an image first".into());
+                }
+                let background = a["background"].as_str().map(String::from).unwrap_or_else(|| st.end_card.background.clone());
                 let dir = self.data_dir.join("endcards");
                 std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-                let stamp = chrono::Utc::now().timestamp();
+                let stamp = chrono::Utc::now().timestamp_millis();
                 let mut paths = json!({});
                 for (key, w, h) in [("9x16", 1080, 1920), ("4x5", 1080, 1350), ("16x9", 1920, 1080)] {
                     let dst = dir.join(format!("endcard-{key}-{stamp}.png"));
-                    ffmpeg::poster_pad(Path::new(&path), &dst, w, h)?;
+                    if background.is_empty() {
+                        ffmpeg::poster_pad(Path::new(&path), &dst, w, h)?;
+                    } else {
+                        ffmpeg::card_on_color(Path::new(&path), &dst, w, h, &background)?;
+                    }
                     paths[key] = json!(dst);
                 }
-                let mut st = self.settings();
+                // The set it replaces, when it was ours.
+                let fresh: Vec<&str> = paths.as_object().into_iter().flat_map(|o| o.values()).filter_map(|p| p.as_str()).collect();
+                for old in st.end_card.paths.as_object().into_iter().flat_map(|o| o.values()).filter_map(|p| p.as_str()) {
+                    if Path::new(old).starts_with(&dir) && !fresh.contains(&old) {
+                        let _ = std::fs::remove_file(old);
+                    }
+                }
+                if let Some(sec) = a["seconds"].as_f64() {
+                    st.end_card.seconds = sec.clamp(0.5, 10.0);
+                }
+                st.end_card.image = path;
+                st.end_card.background = background;
                 st.end_card.paths = paths;
                 st.end_card.poster_id = None;
                 st.end_card.enabled = true;
@@ -1151,6 +1173,9 @@ impl Library {
                     a["paths"].clone()
                 };
                 st.end_card.paths = paths;
+                // Poster cards (or given paths): no chosen picture to remake in a new colour.
+                st.end_card.image = String::new();
+                st.end_card.background = String::new();
                 st.end_card.enabled = a["enabled"].as_bool().unwrap_or(true);
                 if let Some(sec) = a["seconds"].as_f64() {
                     st.end_card.seconds = sec;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore, tryAct, fileUrl, ago } from "../store.js";
-import { Panel, Btn, Check, Text, Seg, Dot, I } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Seg, Dot, I, useSize, Grip } from "../ui.jsx";
 
 const TEMPLATES = {
   "weekly-tafsir": { title: "Studiekring · Tafsir Juzz 'Amma", fields: { subtitle: "elke vrijdag", speaker: "Ustadh Tasneem Sadiq al-Qadri", programme: "20.00 - 20.45 Tafsir les · 20.45 Thee & versnaperingen · 21.00 Individuele salawat & dhikr", location: "Locatie: Coolhaven 238a", note: "Een live meeting-link wordt beschikbaar gesteld", qrCaption: "Scan voor onze WhatsApp-groep" } },
@@ -12,6 +12,8 @@ const nextFriday = () => { const d = new Date(); d.setDate(d.getDate() + ((5 - d
 const nl = (d) => d.toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" });
 
 export default function Posters({ go }) {
+  const [sz0, setsz0] = useSize("posters.left", 230);
+  const [sz1, setsz1] = useSize("posters.export", 300);
   const s = useStore();
   const [selId, setSelId] = useState(null);
   const p = s.posters.find((v) => v.id === selId) || [...s.posters].reverse()[0];
@@ -28,7 +30,7 @@ export default function Posters({ go }) {
 
   return (
     <div className="main">
-      <div className="col" style={{ width: 230, flexShrink: 0 }}>
+      <div className="col" style={{ width: sz0, flexShrink: 0 }}>
         <div className="panel" style={{ flexShrink: 0, maxHeight: "50%" }}>
           <div className="panel-head"><span className="grow">Events</span></div>
           <div className="scroll">
@@ -44,6 +46,7 @@ export default function Posters({ go }) {
           <span className="hint">Claude avoids these. Add more under Settings › Posters.</span>
         </Panel>
       </div>
+      <Grip value={sz0} set={setsz0} dir={1} reset={230} />
       {!p ? <div className="panel grow"><div className="empty">Choose a template to start a poster.</div></div> : (
         <>
           <div className="col grow">
@@ -70,7 +73,8 @@ export default function Posters({ go }) {
               </div>
             </div>
           </div>
-          <div className="panel" style={{ width: 300, flexShrink: 0 }}>
+          <Grip value={sz1} set={setsz1} dir={-1} reset={300} />
+          <div className="panel" style={{ width: sz1, flexShrink: 0 }}>
             <div className="panel-head"><span className="grow">Export</span><span className="sub">{p.chosen ? `variant ${p.variants.indexOf(p.chosen) + 1}` : "choose a variant"}</span></div>
             <div className="panel-body">
               {p.chosen && <div style={{ display: "flex", gap: 10 }}><img src={fileUrl(p.chosen)} alt="" style={{ width: 88, height: 132, objectFit: "cover", borderRadius: 3 }} /><div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.qrOk ? "mint" : "muted"} />QR {p.qrOk ? "decodes" : "not verified"}</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.print ? "mint" : "muted"} />print · jpeg · feed · story</span><span style={{ display: "flex", gap: 6, alignItems: "center" }}><Dot c={p.outputs?.["waiting-16x9"] ? "mint" : "muted"} />waiting videos</span></div></div>}

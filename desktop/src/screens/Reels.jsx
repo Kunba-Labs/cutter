@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, reelTrack, useSpeed, setSpeed, toast } from "../store.js";
-import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm } from "../ui.jsx";
+import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, Grip } from "../ui.jsx";
 import { captionCss, hookCss, litCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
@@ -38,6 +38,11 @@ export default function Reels({ nav, go }) {
   const [logoDrag, setLogoDrag] = useState(null);
   const [logoAspect, setLogoAspect] = useState(1);
   const [askOver, setAskOver] = useState(false);
+  const [leftW, setLeftW] = useSize("reels.left", 320);
+  const [rightW, setRightW] = useSize("reels.right", 340, 260, 700);
+  const [trimH, setTrimH] = useSize("reels.trim", 178, 120, 480);
+  // While the end card (or the music's tail) holds after the reel, the music keeps playing.
+  const holding = useRef(false);
   // The reel's background track plays under the preview at its level (no ducking here).
   const music = useRef(null);
   const speed = useSpeed();
@@ -53,7 +58,7 @@ export default function Reels({ nav, go }) {
         setT(v.currentTime);
         const m = music.current;
         if (m) {
-          if (v.paused) { if (!m.paused) m.pause(); }
+          if (v.paused) { if (!m.paused && !holding.current) m.pause(); }
           else {
             // Follow the video loosely: same speed, and a correction only past a second of drift and
             // never while a seek is still landing. Re-seeking every frame (a seek here takes longer
@@ -73,10 +78,13 @@ export default function Reels({ nav, go }) {
         } else if (!teaser.current && !v.paused && v.currentTime >= c.end && v.currentTime < c.end + 0.5) {
           // Crossing the out point loops; playing on from beyond it (to hear what follows) does not.
           const ec = s.settings.endCard;
-          if ((c.endCardOn ?? ec?.enabled) && ec?.paths?.[aspectKey]) {
-            // Hold the closing card for its duration, then loop.
-            v.pause(); setHold(true);
-            setTimeout(() => { setHold(false); v.currentTime = c.start; v.play(); }, (ec.seconds || 2.5) * 1000);
+          const card = (c.endCardOn ?? ec?.enabled) && ec?.paths?.[aspectKey];
+          // No card but music: the picture fades out while the music plays on, as in the render.
+          const tail = !card && music.current ? s.settings.musicTail ?? 3 : 0;
+          if (card || tail > 0) {
+            // Hold the closing card (or the fading frame) for its duration, then loop.
+            v.pause(); holding.current = true; setHold(card ? "card" : "tail");
+            setTimeout(() => { holding.current = false; setHold(false); v.currentTime = c.start; v.play(); }, (card ? ec.seconds || 2.5 : tail) * 1000);
           } else {
             v.currentTime = c.start;
           }
@@ -203,7 +211,7 @@ export default function Reels({ nav, go }) {
 
   return (
     <div className="main">
-      <div className="panel" style={{ width: 320, flexShrink: 0 }}>
+      <div className="panel" style={{ width: leftW, flexShrink: 0 }}>
         <div className="panel-head"><span>Candidates</span><span className="sub">{cands.length} · {ticked} ticked</span><span className="grow" /><Btn small onClick={() => tryAct("approve_above", { sourceId, score: 8 }, "Ticked everything scoring 8+")}>Tick ≥ 8</Btn></div>
         <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--rule)", display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 60 }}>Source</span><select className="input" style={{ height: 22 }} value={sourceId} onChange={(e) => { go("reels", { sourceId: e.target.value }); setSelId(null); }}>{sources.map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}</select></div>
@@ -230,13 +238,15 @@ export default function Reels({ nav, go }) {
         </div>
       </div>
 
+      <Grip value={leftW} set={setLeftW} reset={320} />
       <div className="col grow">
         <div className="panel grow">
           <div className="panel-head"><span>Preview</span><Seg value={format} onChange={setFormat} options={FORMATS} /><Check label="safe zones" checked={safe} onChange={setSafe} /><span className="grow" /><Speed value={speed} onChange={setSpeed} /><span className="sub" style={{ marginLeft: 8 }}>zoom</span><input type="range" className="slider" style={{ width: 120 }} min="1" max="2.5" step="0.05" value={cz} onChange={(e) => setZoom(+e.target.value)} title="Zoom the crop window" /><span className="num sub" style={{ width: 36 }}>{cz.toFixed(2)}×</span></div>
           <div className="stage" ref={stageRef}>
             <div className="frame" style={{ width: frameW, height: frameH, cursor: zoomW > frameW + 1 || zoomH > frameH + 1 ? (drag ? "grabbing" : "grab") : "default" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
               {x.videoPath && <video ref={video} key={x.meta?.fileAt || x.id} src={fileUrl(x.previewPath || x.videoPath, x.meta?.fileAt)} onError={(e) => toast(`The player can\u2019t read this video (error ${e.currentTarget.error?.code ?? "?"}). Try Import again in the Library.`, "err")} style={{ left, top, width: zoomW, height: zoomH, pointerEvents: "none" }} muted={false} />}
-              {hold && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
+              {hold === "tail" && <div className="tail-fade" style={{ animationDuration: `${s.settings.musicTail ?? 3}s` }} />}
+              {hold === "card" && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {c.titleOn !== false && hookTpl.hook !== false && c.hook && (teasing || (!introOn && t >= c.start - 0.3 && t - c.start < (hookTpl.hookSeconds || 2.5))) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {c.captionsOn !== false && (translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(capTpl, k), fontSize: (capTpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e ? litCss(tpl) : undefined}>{w.w} </span>)}</span></div>}
               {logoOn && <img src={fileUrl(L.path)} alt="" draggable={false} onLoad={(e) => setLogoAspect(e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight))} onPointerDown={onLogoDown} onPointerMove={onLogoMove} onPointerUp={onLogoUp} onPointerCancel={onLogoUp} title="Drag to place the logo on this reel" style={{ position: "absolute", left: (frameW - lw) * lx, top: (frameH - lh) * ly, width: lw, height: lh, opacity: L.opacity ?? 1, cursor: logoDrag ? "grabbing" : "move", zIndex: 3 }} />}
@@ -253,10 +263,13 @@ export default function Reels({ nav, go }) {
             <Btn icon primary onClick={toggle} aria-label="Play">{playing ? I.pause : I.play}</Btn>
             <Btn icon onClick={() => { const i = cands.findIndex((v) => v.id === c.id); setSelId(cands[Math.min(cands.length - 1, i + 1)]?.id); }} aria-label="Next">{I.next}</Btn>
             {introOn && <Btn small onClick={playTeaser} title="Plays the punchline, the transition, then the reel">Play with teaser</Btn>}
-            <span className="muted">Loops the reel. Drag the picture, captions or logo to place them.</span><span className="grow" /><span className="muted">Space plays. Arrows switch reels. [ and ] set in and out. A ticks.</span>
+            <input type="range" className="slider scrub grow" min="0" max={dur.toFixed(2)} step="0.05" value={Math.min(dur, Math.max(0, t - c.start))} onChange={(e) => seek(c.start + +e.target.value)} title="Scrub through the reel. It loops; drag the picture, captions or logo to place them." />
+            <span className="num muted" style={{ whiteSpace: "nowrap" }}>{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
+            <span className="muted" title="Space plays. Arrows switch reels. [ and ] set in and out. A ticks.">⌨︎</span>
           </div>
         </div>
-        <Panel title="Trim" sub={`in ${fmt(c.start)} · out ${fmt(c.end)} · ${dur.toFixed(1)} s`} right={<><Btn small onClick={() => patch({ start: Math.max(0, t) })}>In = playhead</Btn><Btn small onClick={() => patch({ end: Math.max(c.start + 3, t) })}>Out = playhead</Btn><Btn small onClick={snapEnd}>Snap out to sentence</Btn></>} style={{ height: 178, flexShrink: 0 }}>
+        <Grip value={trimH} set={setTrimH} dir={-1} axis="y" reset={178} />
+        <Panel title="Trim" sub={`in ${fmt(c.start)} · out ${fmt(c.end)} · ${dur.toFixed(1)} s`} right={<><Btn small onClick={() => patch({ start: Math.max(0, t) })}>In = playhead</Btn><Btn small onClick={() => patch({ end: Math.max(c.start + 3, t) })}>Out = playhead</Btn><Btn small onClick={snapEnd}>Snap out to sentence</Btn></>} style={{ height: trimH, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
             <span className="muted">Start</span><Btn small onClick={lineBefore} title="Start one transcript line earlier">+ line before</Btn><Btn small onClick={() => nudge("start", -1)}>−1 s</Btn><Btn small onClick={() => nudge("start", 1)}>+1 s</Btn><Btn small onClick={dropFirst} title="Start at the next line">− first line</Btn>
             <span className="grow" />
@@ -272,7 +285,8 @@ export default function Reels({ nav, go }) {
         </Panel>
       </div>
 
-      <div className="panel" style={{ width: 340, flexShrink: 0 }}>
+      <Grip value={rightW} set={setRightW} dir={-1} reset={340} />
+      <div className="panel" style={{ width: rightW, flexShrink: 0 }}>
         <div className="panel-head"><span>Reel</span><span className="grow" /><Cat id={c.category} style={{ color: "var(--sec)" }} /><select className="input" style={{ width: 110, height: 22, fontSize: 12, padding: "0 6px" }} value={c.category} onChange={(e) => patch({ category: e.target.value })}>{CATS.map((k) => <option key={k} value={k}>{CAT_NAMES[k]}</option>)}</select><span className="score" style={{ height: 22 }}>score <input type="number" min="1" max="10" value={c.score} onChange={(e) => patch({ score: +e.target.value })} style={{ width: 28, background: "none", border: 0, color: "inherit", font: "inherit", textAlign: "center", padding: 0, marginLeft: 4 }} /></span></div>
         <div className="panel-body" style={{ gap: 12 }}>
           {c.why && <span className="muted" style={{ lineHeight: 1.45, fontStyle: "italic" }}>{c.why}</span>}
@@ -289,7 +303,7 @@ export default function Reels({ nav, go }) {
           <ReelDetails c={c} s={s} sourceId={sourceId} go={go} hookTpl={hookTpl} applyScope={applyScope} setApplyScope={setApplyScope} applyKeys={applyKeys} setApplyKeys={setApplyKeys} setPending={setPending} live={live} aspectKey={aspectKey} />
         </div>
         <span className="grow" />
-        <div className="panel-foot">
+        <div className="panel-foot" style={{ flexWrap: "wrap" }}>
           <Btn primary className="grow" onClick={async () => { const r = await tryAct("approve", { ids: [c.id], approved: !c.approved }); if (r != null && !c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }}>{c.approved ? "Approved ✓" : "Approve and next"}</Btn>
           <Btn onClick={async () => { const r = await tryAct("render", { candidateIds: [c.id] }, "Rendering"); if (r) go("queue"); }}>Render now</Btn>
           <Btn onClick={() => tryAct("pick_cover", { id: c.id }, "Choosing a new cover")} title="Picks the cover frame again and renders this reel again.">New cover</Btn>
@@ -309,7 +323,10 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
   const L = s.settings.logo || {};
   const ec = s.settings.endCard || {};
   const chooseLogo = async () => { const p = await tryAct("choose_file", { kind: "image", prompt: "Choose the logo (PNG with transparency works best)" }); if (p) tryAct("settings", { patch: { logo: { path: p, enabled: true } } }, "Logo set"); };
-  const chooseCard = async () => { const p = await tryAct("choose_file", { kind: "image", prompt: "Choose the end card image" }); if (p) tryAct("end_card_image", { path: p }, "End card set for 9:16, 4:5 and 16:9"); };
+  const chooseCard = async () => { const p = await tryAct("choose_file", { kind: "image", prompt: "Choose the end card image" }); if (p) tryAct("end_card_image", { path: p, background: ec.background || "#000000" }, "End card set for 9:16, 4:5 and 16:9"); };
+  // The colour picker fires while it is dragged: remake the cards once it settles.
+  const colorTimer = useRef(null);
+  const setCardColor = (hex) => { clearTimeout(colorTimer.current); colorTimer.current = setTimeout(() => tryAct("end_card_image", { background: hex }), 450); };
   return (
     <>
           <div className="insp-group">
@@ -337,14 +354,14 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
             </div>
             <div style={{ display: "flex", gap: 14 }}><Check label="Captions on the video" checked={c.captionsOn !== false} onChange={(v) => patch({ captionsOn: v })} /><Check label="Title on the video" checked={c.titleOn !== false} onChange={(v) => patch({ titleOn: v })} /></div>
             <span className="hint">Drag the captions or the picture to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, background: "var(--bg)", border: "1px solid var(--rule)", borderRadius: 4, padding: "8px 10px" }}>
-              <b style={{ fontSize: 13 }}>Apply to the queue</b>
+            <details className="apply-box">
+              <summary>Apply to the queue<span className="muted"> · {applyKeys.length} chosen</span></summary>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>Scope</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
                 {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
               </div>
               <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Applied to ${n} reels`); }}>Apply to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
-            </div>
+            </details>
           </div>
           <div className="insp-group">
             <div className="insp-head">Sound<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>music sources</a></div>
@@ -375,7 +392,12 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
           <div className="insp-group">
             <div className="insp-head">End card<span className="grow" />{ec.paths?.[aspectKey] && <Check label="On this reel" checked={c.endCardOn ?? ec.enabled} onChange={(v) => patch({ endCardOn: v })} />}</div>
             {ec.paths?.[aspectKey] ? <div style={{ display: "flex", alignItems: "center", gap: 8 }}><img src={fileUrl(ec.paths[aspectKey])} alt="" style={{ height: 48, borderRadius: 3, border: "1px solid var(--rule)" }} /><span className="muted" style={{ fontSize: 13 }}>{ec.seconds ?? 2.5} s after the reel{ec.enabled ? ", on for every reel" : ", off by default"}</span></div> : <span className="hint">No end card yet.</span>}
-            <div style={{ display: "flex", gap: 6 }}><Btn small onClick={chooseCard}>Choose image…</Btn><Btn small onClick={() => go("posters")}>Draw from a poster</Btn></div>
+            {ec.image && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Seg value={ec.background ? "color" : "blur"} onChange={(v) => tryAct("end_card_image", { background: v === "color" ? "#000000" : "" })} options={[["color", "Colour"], ["blur", "Blurred"]]} />
+              {ec.background && <input type="color" defaultValue={ec.background} key={ec.background} onChange={(e) => setCardColor(e.target.value)} style={{ width: 30, height: 24, border: 0, background: "none", padding: 0 }} title="Background behind the picture" />}
+              <span className="muted">for</span><input className="input num" type="number" min="0.5" max="10" step="0.5" style={{ width: 58 }} value={ec.seconds ?? 2.5} onChange={(e) => tryAct("settings", { patch: { endCard: { seconds: +e.target.value || 2.5 } } })} /><span className="muted">s</span>
+            </div>}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><Btn small onClick={chooseCard}>Choose image…</Btn><Btn small onClick={() => go("posters")}>Draw from a poster</Btn></div>
           </div>
           <div className="insp-group">
             <div className="insp-head">Post</div>

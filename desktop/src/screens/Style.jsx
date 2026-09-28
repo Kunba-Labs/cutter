@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore, tryAct, fileUrl, FONTS, FIXED_FONTS } from "../store.js";
-import { Panel, Btn, Check, Text, Seg, I } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Seg, I, useSize, Grip } from "../ui.jsx";
 
 /* libass draws bold at 700 and regular at 400; the preview must ask for the same faces
    (800/500 picked Avenir Next Heavy/Medium here while the render used Bold/Regular). */
@@ -62,6 +62,8 @@ export function Sample({ t, cur = 2, scale = 1, w = 260 }) {
 }
 
 export default function Style({ nav, go }) {
+  const [sz0, setsz0] = useSize("style.left", 300);
+  const [sz1, setsz1] = useSize("style.right", 340);
   const s = useStore();
   const templates = s.settings.captionTemplates || [];
   const [selName, setSelName] = useState(s.settings.captionStyle?.name || templates[0]?.name);
@@ -82,7 +84,7 @@ export default function Style({ nav, go }) {
 
   return (
     <div className="main">
-      <div className="panel" style={{ width: 300, flexShrink: 0 }}>
+      <div className="panel" style={{ width: sz0, flexShrink: 0 }}>
         <div className="panel-head"><a href="#" onClick={(e) => { e.preventDefault(); go("reels"); }} className="sec">Reels</a><span className="muted">/</span><span className="grow">Caption templates</span><Btn small onClick={() => { const n = { ...t, name: `${t.name} copy` }; save([...templates, n], "Duplicated"); setSelName(n.name); }}>Duplicate</Btn></div>
         <div className="scroll" style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
           {templates.map((x) => (
@@ -96,6 +98,7 @@ export default function Style({ nav, go }) {
         <div className="panel-foot" style={{ flexDirection: "column", alignItems: "stretch" }}><span className="hint">Looks that work on Shorts, Reels and TikTok. Reels use the default unless you pick one.</span></div>
       </div>
 
+      <Grip value={sz0} set={setsz0} dir={1} reset={300} />
       <div className="panel grow">
         <div className="panel-head"><span>Preview</span><span className="sub">{t.name}{src ? ` on ${src.title}` : ""}</span></div>
         <div className="stage">
@@ -109,7 +112,8 @@ export default function Style({ nav, go }) {
         <div className="transport"><span className="muted">Sample line with the third word lit. Drag it to place it. Long lines wrap.</span></div>
       </div>
 
-      <div className="panel" style={{ width: 340, flexShrink: 0 }}>
+      <Grip value={sz1} set={setsz1} dir={-1} reset={340} />
+      <div className="panel" style={{ width: sz1, flexShrink: 0 }}>
         <div className="panel-head"><span className="grow">Template</span>{isDefault && <span className="muted">default</span>}</div>
         <div className="panel-body" style={{ gap: 10 }}>
           <Row label="Name"><Text value={t.name} onCommit={(v) => { const n = v.trim() || t.name; patch({ name: n }); setSelName(n); }} /></Row>

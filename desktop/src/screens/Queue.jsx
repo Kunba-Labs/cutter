@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useStore, tryAct, ago } from "../store.js";
-import { Panel, Btn, Dot, Bar, I, Menu, Confirm } from "../ui.jsx";
+import { Panel, Btn, Dot, Bar, I, Menu, Confirm, useSize, Grip } from "../ui.jsx";
 
 const COLS = "14px minmax(0,1.3fr) minmax(0,1fr) 90px 200px 150px 56px";
 const GROUPS = [["running", "Running"], ["queued", "Queued"], ["failed", "Failed"], ["done", "Done"], ["cancelled", "Cancelled"]];
 
 export default function Queue() {
+  const [sz0, setsz0] = useSize("queue.right", 380);
   const s = useStore();
   const [selId, setSelId] = useState(null);
   const jobs = [...s.jobs].reverse();
@@ -53,7 +54,8 @@ export default function Queue() {
           ); })}
         </div>
       </div>
-      <div className="col" style={{ width: 380, flexShrink: 0 }}>
+      <Grip value={sz0} set={setsz0} dir={-1} reset={380} />
+      <div className="col" style={{ width: sz0, flexShrink: 0 }}>
         <div className="panel grow">
           <div className="panel-head"><span className="grow">Job</span>{j && <span className={color[j.status]} style={{ fontWeight: 500 }}>{j.status}</span>}</div>
           {!j ? <div className="empty">Select a job.</div> : (

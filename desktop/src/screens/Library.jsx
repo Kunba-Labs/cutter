@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useStore, tryAct, fileUrl, fmtLong, ago, STAGES } from "../store.js";
-import { Panel, Btn, Dot, Bar, I, Brand, FileMark } from "../ui.jsx";
+import { Panel, Btn, Dot, Bar, I, Brand, FileMark, useSize, Grip } from "../ui.jsx";
 
 export default function Library({ nav, go, query, setAdding }) {
+  const [sz0, setsz0] = useSize("library.left", 220);
+  const [sz1, setsz1] = useSize("library.right", 300);
   const s = useStore();
   const [filter, setFilter] = useState("all");
   const [fts, setFts] = useState(null);
@@ -35,7 +37,7 @@ export default function Library({ nav, go, query, setAdding }) {
 
   return (
     <div className="main">
-      <div className="panel" style={{ width: 220, flexShrink: 0 }}>
+      <div className="panel" style={{ width: sz0, flexShrink: 0 }}>
         <div className="panel-head"><span className="grow">Sources</span><Btn small icon primary onClick={() => setAdding(true)} aria-label="Add source">{I.plus}</Btn></div>
         <div className="scroll" style={{ padding: "6px 0" }}>
           {s.channels.length > 0 && <div className="nav-group">Watched channels</div>}
@@ -57,6 +59,7 @@ export default function Library({ nav, go, query, setAdding }) {
         </div>
       </div>
 
+      <Grip value={sz0} set={setsz0} dir={1} reset={220} />
       <div className="col grow">
         <div className="panel grow">
           <div className="panel-head"><span>Library</span><span className="sub">{shown.length} sources</span><span className="grow" /><Btn small onClick={() => sel && tryAct("run", { id: sel.id })} disabled={!sel}>Run next stage on selected</Btn></div>
@@ -97,7 +100,8 @@ export default function Library({ nav, go, query, setAdding }) {
         </div>
       </div>
 
-      <div className="panel" style={{ width: 300, flexShrink: 0 }}>
+      <Grip value={sz1} set={setsz1} dir={-1} reset={300} />
+      <div className="panel" style={{ width: sz1, flexShrink: 0 }}>
         <div className="panel-head"><span className="grow">Info</span>{sel && <><Btn small icon onClick={() => tryAct("open", { path: sel.folder })} aria-label="Reveal in Finder">{I.folder}</Btn><Btn small icon onClick={() => confirm(`Remove "${sel.title}" from the library? Files stay on disk.`) && tryAct("remove_source", { id: sel.id }) && go("library", { sourceId: null })} aria-label="Remove">{I.trash}</Btn></>}</div>
         {!sel ? <div className="empty">Select a source.</div> : <SourceInfo x={sel} s={s} go={go} />}
       </div>

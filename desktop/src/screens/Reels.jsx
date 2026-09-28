@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, reelTrack, useSpeed, setSpeed, toast, audioGain, resumeAudio, dbGain, levelDb, PREVIEW_LUFS } from "../store.js";
-import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, Grip, Menu } from "../ui.jsx";
+import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, FORMAT_BRAND, reelTrack, useSpeed, setSpeed, toast, audioGain, resumeAudio, dbGain, levelDb, PREVIEW_LUFS } from "../store.js";
+import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, Grip, Menu, Brand, FileMark } from "../ui.jsx";
 import { captionCss, hookCss, litCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
@@ -471,7 +471,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
         <div className="insp-group">
           <div className="insp-head">Files</div>
           {!done.length && <span className="hint">Nothing rendered yet.</span>}
-          {done.map((r) => { const i = r.info || {}; const bad = i.issues?.length; return <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><Dot c={bad ? "coral" : i.width ? "mint" : ""} /><b style={{ width: 62 }}>{formatName(r.format)}</b><span className={`ell ${bad ? "coral" : "muted"}`}>{i.width ? `${i.width}×${i.height} · ${Math.round(i.fps)} fps · ${(i.kbps / 1000).toFixed(1)} Mbps · ${i.seconds} s${bad ? ` · ${i.issues.join(", ")}` : ""}` : "not measured"}</span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>play</a></div>; })}
+          {done.map((r) => { const i = r.info || {}; const bad = i.issues?.length; return <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><Dot c={bad ? "coral" : i.width ? "mint" : ""} />{FORMAT_BRAND[r.format] ? <Brand id={FORMAT_BRAND[r.format]} size={12} /> : <FileMark size={12} />}<b style={{ width: 62 }}>{formatName(r.format)}</b><span className={`ell ${bad ? "coral" : "muted"}`}>{i.width ? `${i.width}×${i.height} · ${Math.round(i.fps)} fps · ${(i.kbps / 1000).toFixed(1)} Mbps · ${i.seconds} s${bad ? ` · ${i.issues.join(", ")}` : ""}` : "not measured"}</span><a href="#" className="muted" onClick={(e) => { e.preventDefault(); tryAct("open", { path: r.path }); }}>play</a></div>; })}
         </div>
       </>}
 

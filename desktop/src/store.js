@@ -176,6 +176,8 @@ export function reelTrack(tracks, settings, c) {
 
 /* Teaser → reel transitions (ffmpeg::TRANSITIONS). */
 export const TRANSITIONS = [["swoosh", "Swoosh"], ["zoom", "Zoom"], ["slide", "Slide up"], ["blur", "Blur"], ["flash", "Flash"], ["fade", "Fade"], ["cut", "Cut"]];
+/* The service a render format is made for (the clean cut is for none). */
+export const FORMAT_BRAND = { shorts: "youtube", landscape: "youtube", reels: "instagram", feed: "instagram", tiktok: "tiktok" };
 export const FORMATS = [["shorts", "Shorts"], ["reels", "Reels"], ["tiktok", "TikTok"], ["feed", "Feed 4:5"], ["landscape", "16:9"]];
 
 /* Preview playback speed, shared by the Reels and Transcript players. */

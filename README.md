@@ -26,6 +26,10 @@ What the cassette tape did for the Friday khutbah in the eighties, the reel does
 
 **It makes the weekly poster.** Claude designs three variants through the Higgsfield MCP, Cuttar pastes the real QR code into the blank panel and checks that it scans, and the same poster becomes the end card and a "starting soon" loop that counts down to the lesson.
 
+## Get it
+
+Download the `.dmg` from the [latest release](https://github.com/Kunba-Labs/cutter/releases/latest) and drag Cuttar into Applications. It needs a Mac with Apple silicon. Every push to `main` becomes a signed, notarized release, and a running Cuttar checks for a new one every half hour and offers a restart when it finds one. It never restarts in the middle of a render.
+
 ## Run it
 
 You need macOS on Apple silicon, Rust, Node with Yarn, and a few tools from Homebrew:

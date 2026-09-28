@@ -34,6 +34,8 @@ cd desktop && yarn install:app       # build, sign, install /Applications/Cuttar
 cd desktop && yarn install:app:dev   # same for "Cuttar Dev"
 cargo test -p cuttar-core            # the tests that matter
 bin/smoke                            # synthetic lecture through the whole pipeline (needs claude, ffmpeg, mlx_whisper)
+bin/version                          # 0.1.<commit count>: what every release (and local build) is tagged
+bin/release-secrets                  # once: signing, notarizing, updater and YouTube secrets onto GitHub (gh auth)
 cargo build --release -p cuttar && ln -sf $PWD/target/release/cuttar ~/.local/bin/cuttar
 ```
 
@@ -120,6 +122,13 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   controls, checks, slider thumbs, links, inspector group heads. Mint = done, the trim timeline
   and the current word; coral = failed. No stat tiles, no caps labels, no pill nav.
 
+- **Releases are automatic.** Every push to main (github.com/Kunba-Labs/cutter) runs
+  `.github/workflows/release.yml`: Apple silicon build, Developer ID signed, notarized, released as
+  `v<bin/version>` with latest.json. Every copy built with `tauri.release.conf.json` (CI,
+  `bin/app-build`, `yarn install:app`) polls `releases/latest/download/latest.json` every 30 min
+  (`desktop/src-tauri/src/updater.rs`); the status bar then offers "Update · Restart", refused
+  while a job runs. The updater key is `~/Desktop/cuttar-updater-key`: losing it strands every
+  install. Local builds carry the same version scheme, so they are only offered newer releases.
 - **No secrets in the repo** (public on GitHub). The YouTube OAuth client secret comes from the
   deploy environment: `CUTTAR_YT_SECRET` or `.deploy.env` at the root (gitignored), read by
   `core/build.rs`. The client id stays in code (it is an identifier).
@@ -150,6 +159,9 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - libass: the `ass=` filter path must escape `:` and `\`; ASS colours are `&HAABBGGRR`.
 - ffmpeg drawtext countdown: `%{eif:…}` with `\:` and `\,` escaped inside the filter.
 - Tauri `dragDropEnabled` is false so the webview gets its own drops.
+- Release profile says `strip = false` (also for build-override): Cargo strips debuginfo by default
+  and Xcode 27's strip breaks freshly built proc-macro dylibs (E0463 "can't find crate for
+  ctor_proc_macro / futures_macro"). Old builds only worked because those dylibs were cached.
 - Release profile has no `lto` and no `strip`: on this toolchain (rustc 1.96, Xcode 27) `lto = true` corrupts proc-macro dylibs (darling, ctor: "mis-aligned LINKEDIT string pool", surfacing as E0463). `cargo clean --release` after changing the profile.
 - The desktop executable is `cuttar-desktop` (tauri.conf `mainBinaryName`), never `Cuttar`: on the case-insensitive disk that name overwrote `target/release/cuttar`, the CLI, and every CLI call launched a second app.
 - Verify a frontend change in `desktop/dist/assets/*.js`, never by grepping the binary: Tauri embeds the assets brotli-compressed. `bin/app-build "literal"` does that check. Edit scripts that assert on old text abort BEFORE writing; check the source (`git status`) before building.

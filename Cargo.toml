@@ -6,3 +6,10 @@ members = ["core", "cli", "desktop/src-tauri"]
 # No `lto` or `strip`: with rustc 1.96 / Xcode 27 either mangles the proc-macro dylibs
 # ("mis-aligned LINKEDIT string pool") and the Tauri release build dies in darling/ctor.
 codegen-units = 1
+# Cargo strips debuginfo from release builds by default since 1.77, and Xcode 27's strip mangles
+# freshly built proc-macro dylibs the same way ("can't find crate for ctor_proc_macro" /
+# futures_macro, E0463). Say no explicitly, for the proc-macros too.
+strip = false
+
+[profile.release.build-override]
+strip = false

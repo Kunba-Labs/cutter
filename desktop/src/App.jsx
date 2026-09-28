@@ -1,5 +1,5 @@
 import { Component, useEffect, useState } from "react";
-import { useStore, act, refresh, undo } from "./store.js";
+import { useStore, act, refresh, undo, installUpdate } from "./store.js";
 import { Btn, I } from "./ui.jsx";
 import Library from "./screens/Library.jsx";
 import Transcript from "./screens/Transcript.jsx";
@@ -92,7 +92,7 @@ export default function App() {
       </div>
       <Boundary resetKey={`${nav.tab}:${nav.sourceId}:${nav.view}`} onHome={() => go("library", { sourceId: null, view: "reels" })}>{screen}</Boundary>
       {adding && <AddSource onClose={() => setAdding(false)} go={go} />}
-      <QueueMeter jobs={s.jobs} paused={s.settings.queuePaused} onOpen={() => go("queue")} />
+      <QueueMeter jobs={s.jobs} paused={s.settings.queuePaused} update={s.update} updating={s.updating} onOpen={() => go("queue")} />
       {s.toast && <div style={{ position: "fixed", right: 16, bottom: 40, padding: "8px 12px", borderRadius: 4, background: s.toast.kind === "err" ? "#3B1F2A" : "var(--head)", border: `1px solid ${s.toast.kind === "err" ? "var(--coral)" : s.toast.kind === "ok" ? "var(--mint)" : "var(--rule)"}`, fontSize: 13.5, maxWidth: 420, zIndex: 20 }}>{s.toast.msg}</div>}
     </div>
   );
@@ -101,9 +101,12 @@ export default function App() {
 /* The whole queue at a glance, bottom right while anything is queued or running: done / total of the
    run (what is waiting, and what finished since the oldest of it was queued), one bar, and the time
    left at the pace so far. */
-function QueueMeter({ jobs, paused, onOpen }) {
+function QueueMeter({ jobs, paused, update, updating, onOpen }) {
   const active = jobs.filter((j) => j.status === "queued" || j.status === "running");
-  if (!active.length) return <div className="statusbar"><span className="grow" /><span className="queue-meter idle">Queue idle</span></div>;
+  const running = jobs.some((j) => j.status === "running");
+  // A newer release waits: one click restarts into it, once nothing is running.
+  const upd = update && <button type="button" className="update-btn" disabled={running || updating} onClick={installUpdate} title={running ? "Restarts once the running jobs are done" : "Download, install and restart"}>{updating ? `Updating to ${update}…` : `Update ${update} · Restart`}</button>;
+  if (!active.length) return <div className="statusbar"><span className="grow" />{upd}<span className="queue-meter idle">Queue idle</span></div>;
   const from = active.reduce((m, j) => (j.createdAt < m ? j.createdAt : m), active[0].createdAt);
   // A finished job belongs to this run when it ended after the oldest waiting job was queued.
   const batch = jobs.filter((j) => j.status !== "cancelled" && (j.createdAt >= from || (j.finishedAt && j.finishedAt >= from)));
@@ -118,6 +121,7 @@ function QueueMeter({ jobs, paused, onOpen }) {
     <div className="statusbar">
       <span className="muted ell">{active.find((j) => j.status === "running")?.label || active[0].label}</span>
       <span className="grow" />
+      {upd}
       <button type="button" className="queue-meter" onClick={onOpen} title="Open the queue">
         <span className="num qm-count">{finished}/{batch.length}</span>
         <span className="qm-bar"><i style={{ width: `${Math.min(100, (units / batch.length) * 100)}%` }} /></span>

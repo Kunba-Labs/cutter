@@ -9,7 +9,9 @@ use cuttar_core::Library;
 use serde_json::Value;
 use tauri::{Emitter, Manager, State};
 
-struct Core(Arc<Library>);
+mod updater;
+
+pub(crate) struct Core(Arc<Library>);
 
 /// Async on purpose: a sync command runs on the main thread and a long action
 /// would freeze the window.
@@ -35,7 +37,10 @@ fn main() {
     cuttar_core::tools::inherit_login_path();
     let ctx = tauri::generate_context!();
     let dev = ctx.config().identifier.ends_with(".dev");
-    tauri::Builder::default()
+    // Only a release-config build has an updater; see updater.rs.
+    let builder = tauri::Builder::default();
+    let builder = if ctx.config().plugins.0.contains_key("updater") { builder.plugin(tauri_plugin_updater::Builder::new().build()) } else { builder };
+    builder
         .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::MAXIMIZED).build())
         .setup(move |app| {
             let data_dir = cuttar_core::default_data_dir(dev);
@@ -56,12 +61,13 @@ fn main() {
             }));
             log::info!("cuttar data dir: {} · log: {}", data_dir.display(), log_path.display());
             app.manage(Core(lib));
+            updater::poll(app.handle());
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("media", |_ctx, request, responder| {
             std::thread::spawn(move || responder.respond(media_response(&request)));
         })
-        .invoke_handler(tauri::generate_handler![dispatch, open_url])
+        .invoke_handler(tauri::generate_handler![dispatch, open_url, updater::check_for_updates, updater::install_update])
         .run(ctx)
         .expect("error while running cuttar");
 }

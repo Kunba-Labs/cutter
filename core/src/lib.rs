@@ -162,6 +162,13 @@ impl Library {
         st
     }
 
+    /// Hold the workers (claim nothing new) without touching settings: an app update drains this
+    /// way, and releases the hold when the update fails. Returns how many jobs are still running.
+    pub fn hold_jobs(&self, hold: bool) -> usize {
+        self.draining.store(hold, std::sync::atomic::Ordering::SeqCst);
+        self.active.lock().len()
+    }
+
     pub fn out_dir(&self) -> PathBuf {
         PathBuf::from(self.settings().out_dir)
     }

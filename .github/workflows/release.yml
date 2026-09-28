@@ -1,0 +1,106 @@
+# Every push to main is a release: tag v<bin/version>, build the Apple silicon app, sign and
+# notarize it, and publish it with latest.json, which every running copy's updater polls
+# (desktop/src-tauri/tauri.release.conf.json, desktop/src-tauri/src/updater.rs).
+# Apple silicon only: the transcriber (mlx-whisper) runs on nothing else.
+#
+# Secrets (repo Settings > Secrets > Actions; bin/release-secrets sets them all):
+#   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]  ~/Desktop/cuttar-updater-key (losing it strands every install)
+#   APPLE_CERTIFICATE[_PASSWORD]          Developer ID .p12, base64
+#   APPLE_SIGNING_IDENTITY                "Developer ID Application: ... (KF53B4S5HD)"
+#   APPLE_API_KEY / APPLE_API_ISSUER / APPLE_API_KEY_P8   App Store Connect key, for notarizing
+#   CUTTAR_YT_SECRET                      YouTube OAuth client secret (core/build.rs)
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One release at a time; a push that lands mid-build waits, then ships on top.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # bin/version counts commits
+
+      - name: Version
+        run: |
+          V=$(bin/version)
+          echo "V=$V" >> "$GITHUB_ENV"
+          jq --arg v "$V" '.version = $v' desktop/src-tauri/tauri.conf.json > t.json && mv t.json desktop/src-tauri/tauri.conf.json
+
+      # An unsigned build would still auto-install on every Mac, and a new ad-hoc signature resets
+      # its permissions. A build without the YouTube secret could not connect a channel. Refuse.
+      - name: Secrets present
+        env:
+          A: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          B: ${{ secrets.APPLE_CERTIFICATE }}
+          C: ${{ secrets.APPLE_API_KEY_P8 }}
+          D: ${{ secrets.CUTTAR_YT_SECRET }}
+        run: '[ -n "$A" ] && [ -n "$B" ] && [ -n "$C" ] && [ -n "$D" ] || { echo "::error::release secrets missing: run bin/release-secrets"; exit 1; }'
+
+      - name: App Store Connect key
+        run: |
+          echo "${{ secrets.APPLE_API_KEY_P8 }}" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: desktop/yarn.lock
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Core tests
+        env:
+          CUTTAR_YT_SECRET: ${{ secrets.CUTTAR_YT_SECRET }}
+        run: cargo test -p cuttar-core
+
+      - run: yarn install --frozen-lockfile
+        working-directory: desktop
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUTTAR_YT_SECRET: ${{ secrets.CUTTAR_YT_SECRET }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        with:
+          projectPath: desktop
+          args: --target aarch64-apple-darwin -c src-tauri/tauri.release.conf.json
+          tagName: v${{ env.V }}
+          releaseName: Cuttar ${{ env.V }}
+          releaseBody: ${{ github.event.head_commit.message }}
+          releaseCommitish: ${{ github.sha }}
+          releaseDraft: false
+          includeUpdaterJson: true
+
+      # Tauri notarizes the .app inside but not the .dmg around it, and a downloaded, unnotarized
+      # disk image is what Gatekeeper checks first.
+      - name: Notarize the dmg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DMG=$(ls target/aarch64-apple-darwin/release/bundle/dmg/*.dmg)
+          xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY_PATH" --key-id "${{ secrets.APPLE_API_KEY }}" --issuer "${{ secrets.APPLE_API_ISSUER }}" --wait
+          xcrun stapler staple "$DMG"
+          gh release upload "v$V" "$DMG" --clobber

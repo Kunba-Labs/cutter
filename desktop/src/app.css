@@ -231,6 +231,8 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
    columns, so nothing moves while numbers change) on the right. Always there, so it never covers a button. */
 .statusbar { flex-shrink: 0; height: 24px; display: flex; align-items: center; gap: 10px; padding: 0 4px; font-size: 12px; min-width: 0; }
 .queue-meter { width: 300px; flex-shrink: 0; display: grid; grid-template-columns: 52px 1fr 86px; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; font: inherit; font-variant-numeric: tabular-nums; }
+.update-btn { flex-shrink: 0; height: 20px; padding: 0 10px; border-radius: 4px; border: 0; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 700; cursor: pointer; }
+.update-btn:disabled { opacity: .5; cursor: default; }
 .queue-meter.idle { display: block; text-align: right; color: var(--muted); cursor: default; }
 .qm-count { text-align: right; }
 .qm-eta { text-align: right; white-space: nowrap; }

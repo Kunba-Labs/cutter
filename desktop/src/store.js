@@ -63,6 +63,19 @@ export function toast(msg, kind = "info") {
   }, 4000);
 }
 
+/* Download the waiting update, swap the app and relaunch (refused while a job runs). */
+export async function installUpdate() {
+  if (!tauri || state.updating) return;
+  state = { ...state, updating: true }; emit();
+  try {
+    toast("Downloading the update…");
+    await invoke("install_update");
+  } catch (e) {
+    toast(e?.message || e, "err");
+  }
+  state = { ...state, updating: false }; emit();
+}
+
 /// An action with the error surfaced instead of swallowed.
 export async function tryAct(action, args, okMsg) {
   try {
@@ -107,6 +120,11 @@ async function init() {
   await listen("library-changed", () => {
     clearTimeout(t);
     t = setTimeout(refresh, 120);
+  });
+  // A release build polls latest.json (src-tauri/src/updater.rs) and says when one is waiting.
+  await listen("update://available", (e) => {
+    state = { ...state, update: e.payload };
+    emit();
   });
 }
 init();

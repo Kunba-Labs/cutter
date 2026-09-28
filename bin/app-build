@@ -5,7 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 touch desktop/src-tauri/src/main.rs
-(cd desktop && yarn -s tauri build --bundles app 2>&1 | grep -E "Bundling|^error" | tail -1)
+# The release config and bin/version, like a CI release (see install-local.mjs): the running copy
+# is then offered only newer releases, and updates in place.
+V=$(bin/version)
+(cd desktop && yarn -s tauri build --bundles app -c src-tauri/tauri.release.conf.json --config "{\"version\":\"$V\",\"bundle\":{\"createUpdaterArtifacts\":false}}" 2>&1 | grep -E "Bundling|^error" | tail -1)
 # The embedded assets are brotli-compressed inside the binary, so the check reads the
 # built dist instead: it is what the bundle step just embedded.
 if [ -n "${1:-}" ]; then

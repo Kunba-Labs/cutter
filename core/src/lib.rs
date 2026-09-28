@@ -372,6 +372,7 @@ impl Library {
             "renders": self.all::<Render>("renders"),
             "posts": self.all::<Post>("posts"),
             "posters": self.all::<Poster>("posters"),
+            "tracks": self.all::<Track>("tracks"),
             "jobs": jobs,
             "settings": s,
             "tools": tools::detect(&s.claude_bin),
@@ -695,6 +696,11 @@ impl Library {
                             }
                             "logo" => c.logo = from.logo.clone(),
                             "endCard" => c.end_card_on = from.end_card_on,
+                            "music" => {
+                                c.music = from.music.clone();
+                                c.music_volume = from.music_volume;
+                            }
+                            "loudness" => c.loudness = from.loudness,
                             _ => {}
                         }
                     }
@@ -763,6 +769,41 @@ impl Library {
                 let id = id()?;
                 let c: Candidate = self.get("candidates", &id).ok_or("no such reel")?;
                 json!(self.enqueue("punchline", &id, &format!("{} · punchline", c.title), json!({})))
+            }
+            "add_music" => {
+                // A YouTube video or playlist of background tracks: listed now, fetched by a job.
+                let url = s("url").map(|u| u.trim().to_string()).filter(|u| !u.is_empty()).ok_or("url required")?;
+                let (list_title, videos) = ytdlp::expand(&url)?;
+                let mut n = 0;
+                for v in videos {
+                    if let Some(mut old) = self.get::<Track>("tracks", &v.id) {
+                        // Adding the link again retries what failed before.
+                        if old.status == "failed" {
+                            old.status = "listed".into();
+                            self.put("tracks", &old.id.clone(), &format!("{}-{}", old.list_url, old.added_at), &old);
+                        }
+                        continue;
+                    }
+                    let t = Track { id: v.id.clone(), url: v.url, title: v.title, duration: v.duration, list_url: url.clone(), list_title: list_title.clone(), status: "listed".into(), added_at: now(), ..Default::default() };
+                    self.put("tracks", &t.id, &format!("{}-{}", t.list_url, t.added_at), &t);
+                    n += 1;
+                }
+                self.enqueue("music", "music", "Background music", json!({}));
+                self.changed();
+                json!({ "added": n, "title": list_title })
+            }
+            "remove_music" => {
+                // One track (id) or every track added with one link (listUrl); their files go too.
+                let (id, list) = (s("id"), s("listUrl"));
+                let gone: Vec<Track> = self.all::<Track>("tracks").into_iter().filter(|t| id.as_deref() == Some(t.id.as_str()) || list.as_deref() == Some(t.list_url.as_str())).collect();
+                for t in &gone {
+                    if let Some(p) = &t.path {
+                        let _ = std::fs::remove_file(p);
+                    }
+                    let _ = self.db.lock().delete("tracks", &t.id);
+                }
+                self.changed();
+                json!(gone.len())
             }
             "choose_file" => {
                 // The macOS open panel; null when cancelled. kind "image" limits it to pictures.

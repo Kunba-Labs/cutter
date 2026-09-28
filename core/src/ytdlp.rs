@@ -140,6 +140,41 @@ pub fn channel_videos(url: &str, limit: usize) -> Result<Vec<ChannelVideo>, Stri
         .collect())
 }
 
+/// The videos behind a music link: every entry of a playlist (a watch link with `&list=` counts),
+/// or the one video. Returns the list's title too.
+pub fn expand(url: &str) -> Result<(String, Vec<ChannelVideo>), String> {
+    let out = Command::new("yt-dlp").args(["--flat-playlist", "--dump-single-json", "--no-warnings", "--playlist-end", "500"]).arg(url).output().map_err(|e| format!("yt-dlp: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout.lines().rev().find(|l| l.starts_with('{')).ok_or_else(|| format!("yt-dlp exit {}: {}", out.status, String::from_utf8_lossy(&out.stderr).trim()))?;
+    let v: Value = serde_json::from_str(line).map_err(|e| format!("yt-dlp json: {e}"))?;
+    let title = v["title"].as_str().unwrap_or("").to_string();
+    let one = |e: &Value| -> Option<ChannelVideo> {
+        let id = e["id"].as_str()?.to_string();
+        // A list keeps private and deleted entries as placeholders nobody can fetch: no title, or a bracketed one.
+        let title = e["title"].as_str().filter(|t| !matches!(*t, "[Private video]" | "[Deleted video]"))?.to_string();
+        Some(ChannelVideo { url: format!("https://www.youtube.com/watch?v={id}"), id, title, duration: e["duration"].as_f64(), uploaded_at: None })
+    };
+    let videos: Vec<ChannelVideo> = match v["entries"].as_array() {
+        Some(list) => list.iter().filter_map(one).collect(),
+        None => one(&v).into_iter().collect(),
+    };
+    if videos.is_empty() {
+        return Err("no videos behind this link".into());
+    }
+    Ok((title, videos))
+}
+
+/// A video's best audio stream (no video) as `dir/<id>.<ext>`; returns the file.
+pub fn audio(url: &str, id: &str, dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let out = Command::new("yt-dlp").args(["-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist", "--no-warnings", "--no-progress", "-o", &format!("{id}.%(ext)s"), "--print", "after_move:filepath"]).arg(url).current_dir(dir).output().map_err(|e| format!("yt-dlp: {e}"))?;
+    let path = String::from_utf8_lossy(&out.stdout).lines().rev().find(|l| !l.trim().is_empty()).map(|l| PathBuf::from(l.trim()));
+    match path.filter(|p| p.exists()) {
+        Some(p) => Ok(p),
+        None => Err(format!("yt-dlp exit {}: {}", out.status, String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("no file"))),
+    }
+}
+
 /// VTT cues → segments (cue-level timing, no words). Rolling auto-sub repeats
 /// are dropped the way membox does it.
 pub fn vtt_to_segments(vtt: &str) -> Vec<Segment> {

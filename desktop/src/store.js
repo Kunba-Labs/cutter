@@ -129,6 +129,23 @@ export const CATS = ["fact", "statement", "hook", "story", "dua", "reminder", "q
    (captions::FIXED_FONTS in the core). */
 export const FONTS = ["Helvetica Neue", "Avenir Next", "Avenir Next Condensed", "Futura", "Gill Sans", "DIN Condensed", "Arial Black", "Impact", "Montserrat ExtraBold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Lilita One", "SF Pro Rounded", "Rockwell", "American Typewriter", "Georgia", "Baskerville", "Didot", "Menlo", "Geeza Pro"];
 export const FIXED_FONTS = ["Montserrat ExtraBold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Lilita One", "Arial Black", "Impact"];
+/* Loudness presets, LUFS. Platforms play at about −14 and turn louder files down. */
+export const LOUDNESS = [[-14, "Standard (−14)"], [-11, "Louder (−11)"], [-9, "Loudest (−9)"]];
+/* The track a reel's "random" lands on: the core's pick (pipeline::reel_music), same hash. */
+export function randomTrack(tracks, candidateId) {
+  const ready = tracks.filter((t) => t.status === "ready").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  if (!ready.length) return null;
+  let h = 0n;
+  for (const b of new TextEncoder().encode(candidateId)) h = (h * 31n + BigInt(b)) & 0xffffffffffffffffn;
+  return ready[Number(h % BigInt(ready.length))];
+}
+export function reelTrack(tracks, settings, c) {
+  const choice = c.music ?? settings.music ?? "random";
+  if (choice === "none" || !choice) return null;
+  if (choice === "random") return randomTrack(tracks, c.id);
+  return tracks.find((t) => t.id === choice && t.status === "ready") || null;
+}
+
 /* Teaser → reel transitions (ffmpeg::TRANSITIONS). */
 export const TRANSITIONS = [["swoosh", "Swoosh"], ["zoom", "Zoom"], ["slide", "Slide up"], ["blur", "Blur"], ["flash", "Flash"], ["fade", "Fade"], ["cut", "Cut"]];
 export const FORMATS = [["shorts", "Shorts"], ["reels", "Reels"], ["tiktok", "TikTok"], ["feed", "Feed 4:5"], ["landscape", "16:9"]];

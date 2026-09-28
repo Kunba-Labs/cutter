@@ -49,6 +49,8 @@ Pro-editor panels on deep navy (#1A1D2A), 26 px header strips, sentence-case tit
 - End card: was only under Posters/Settings; now also on the Reels inspector, and any image can be the card (padded to 9:16, 4:5, 16:9).
 - Fonts: six OFL display fonts bundled (Montserrat, Poppins, Anton, Bebas Neue, Archivo Black, Lilita One) + six new templates; preview weights fixed to match libass.
 
+- Background music (same day): YouTube videos/playlists as sources, expanded and downloaded; per reel random (stable) / a specific track / none, own level. Default loudness raised from −14 to −11 LUFS, per reel overridable; "Apply to the queue" copies music and loudness to all reels.
+
 ## Open questions for Waseem
 
 - Waiting video: burned countdown (render on the day) vs live clock in OBS — default burned.

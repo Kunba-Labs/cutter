@@ -56,6 +56,7 @@ fn run(lib: &Library, job: &Job) -> Result<Value, String> {
         "detect" => detect(lib, job),
         "polish" => polish(lib, job),
         "punchline" => punchline(lib, job),
+        "music" => music(lib, job),
         "render" => render(lib, job),
         "publish" => publish(lib, job),
         "check_channel" => check_channel(lib, job),
@@ -466,8 +467,11 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let has_audio = src.meta["hasAudio"].as_bool().unwrap_or_else(|| ffmpeg::probe(&video).map(|p| p.has_audio).unwrap_or(true));
     let intro = pl.intro.as_ref().map(|(a, b, tr)| ffmpeg::Intro { start: *a, end: *b, ass: intro_ass.as_deref(), transition: tr });
     let logo = pl.logo.as_ref().map(|(p, x, y, size, opacity)| ffmpeg::LogoSpec { path: p, x: *x, y: *y, size: *size, opacity: *opacity });
+    // The clean cut stays bare: no music either.
+    let track = if clean { None } else { reel_music(lib, &s, &c) };
+    let music = track.as_deref().map(|p| (p, c.music_volume.unwrap_or(s.music_volume)));
     let res = ffmpeg::render(
-        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: ass.as_deref(), intro, logo, end_card, has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: ass.as_deref(), intro, logo, end_card, music, loudness: c.loudness.unwrap_or(s.loudness), has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
         |p, m| lib.job_progress(&jid, p, m),
         |pid| lib.register_child(&jid, pid),
     );
@@ -839,4 +843,60 @@ fn punchline(lib: &Library, job: &Job) -> Result<Value, String> {
     c.punchline = quote.clone();
     lib.save_candidate(&mut c);
     Ok(json!({ "message": quote }))
+}
+
+/// Fetches the audio of every background track not on disk yet, one at a time from the table, so
+/// links added meanwhile are picked up and tracks removed meanwhile stay removed.
+fn music(lib: &Library, job: &Job) -> Result<Value, String> {
+    let dir = lib.data_dir.join("music");
+    let (mut ok, mut failed) = (0, 0);
+    let mut tried: Vec<String> = Vec::new();
+    loop {
+        let todo: Vec<Track> = lib.all::<Track>("tracks").into_iter().filter(|t| !tried.contains(&t.id) && t.status != "failed" && !(t.status == "ready" && t.path.as_ref().map(|p| Path::new(p).exists()).unwrap_or(false))).collect();
+        let Some(mut t) = todo.first().cloned() else { break };
+        tried.push(t.id.clone());
+        lib.job_progress(&job.id, tried.len() as f64 / (tried.len() + todo.len()) as f64, &format!("{} of {} · {}", tried.len(), tried.len() + todo.len() - 1, t.title));
+        // YouTube hands out the odd 403 on a first try; a second one usually goes through.
+        let res = ytdlp::audio(&t.url, &t.id, &dir).or_else(|_| {
+            std::thread::sleep(Duration::from_secs(3));
+            ytdlp::audio(&t.url, &t.id, &dir)
+        });
+        // Removed while it downloaded: drop the file, keep it gone.
+        let Some(now) = lib.get::<Track>("tracks", &t.id) else {
+            if let Ok(p) = res {
+                let _ = std::fs::remove_file(p);
+            }
+            continue;
+        };
+        t = now;
+        match res {
+            Ok(p) => {
+                t.path = Some(p.display().to_string());
+                t.status = "ready".into();
+                t.error = None;
+                ok += 1;
+            }
+            Err(e) => {
+                t.status = "failed".into();
+                t.error = Some(e);
+                failed += 1;
+            }
+        }
+        lib.put("tracks", &t.id.clone(), &format!("{}-{}", t.list_url, t.added_at), &t);
+        lib.changed();
+    }
+    Ok(json!({ "message": format!("{ok} tracks ready{}", if failed > 0 { format!(", {failed} failed") } else { String::new() }) }))
+}
+
+/// The reel's background track: its own pick, a stable random one (same reel, same track), or none.
+pub fn reel_music(lib: &Library, s: &Settings, c: &Candidate) -> Option<PathBuf> {
+    let choice = c.music.clone().unwrap_or_else(|| s.music.clone());
+    let mut ready: Vec<Track> = lib.all::<Track>("tracks").into_iter().filter(|t| t.status == "ready" && t.path.as_ref().map(|p| Path::new(p).exists()).unwrap_or(false)).collect();
+    ready.sort_by(|a, b| a.id.cmp(&b.id));
+    let t = match choice.as_str() {
+        "none" | "" => None,
+        "random" => (!ready.is_empty()).then(|| ready[c.id.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize)) % ready.len()].clone()),
+        id => ready.into_iter().find(|t| t.id == id),
+    };
+    t.and_then(|t| t.path).map(PathBuf::from)
 }

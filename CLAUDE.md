@@ -61,6 +61,13 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   teaser, logo or end card, no cover. captions.srt matches it.
 - **Logo**: `settings.logo` (path, size, opacity, default place); `candidate.logo` {on,x,y} per
   reel, dragged in the preview. x/y place it within the free space (0..1), same maths both sides.
+- **Background music**: `tracks` table (one YouTube video's audio each, in `<data>/music/<id>.m4a`).
+  `add_music` expands a link with `ytdlp::expand` (a watch link with `&list=` = the whole list;
+  private/deleted entries skipped), the `music` job downloads one track at a time from the table
+  (additions picked up, removals respected). Per reel `music` = random | none | track id (random is
+  a stable hash of the reel id, same in `store.js randomTrack`), `music_volume`; it loops, fades,
+  ducks under speech (sidechaincompress). Everything is normalised last to `loudness` (default −11
+  LUFS, per reel overridable). The clean cut gets no music.
 - **Nothing posts without a confirm** unless a channel says `auto_schedule`. YouTube uploads
   as private with `publishAt`; TikTok/Meta are not linked (need approved apps): a confirmed post
   there fails with the file path + caption.txt for a manual upload. Messy is out (Waseem, 2026-09-26).

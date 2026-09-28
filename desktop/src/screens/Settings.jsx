@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useStore, tryAct, FORMATS, TRANSITIONS } from "../store.js";
+import { useStore, tryAct, fileUrl, fmtLong, FORMATS, TRANSITIONS, LOUDNESS } from "../store.js";
 import { Panel, Btn, Check, Text, Seg, Dot, Brand, Confirm, I } from "../ui.jsx";
 
-const SECTIONS = [["general", "General"], ["engines", "Engines"], ["channels", "Channels"], ["captions", "Captions"], ["posters", "Posters"], ["mcp", "Claude and terminal"]];
+const SECTIONS = [["general", "General"], ["engines", "Engines"], ["channels", "Channels"], ["captions", "Captions"], ["music", "Music"], ["posters", "Posters"], ["mcp", "Claude and terminal"]];
 
 export default function Settings({ go }) {
   const s = useStore();
@@ -102,6 +102,7 @@ export default function Settings({ go }) {
             </Panel>
           </>
         )}
+        {sec === "music" && <Music s={s} st={st} patch={patch} />}
         {sec === "captions" && (
           <Panel title="Captions" sub="the default template">
             <Row label="Default template"><select className="input" style={W} value={st.captionStyle?.name} onChange={(e) => { const t = (st.captionTemplates || []).find((x) => x.name === e.target.value); if (t) patch({ captionStyle: t }); }}>{(st.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select><Btn onClick={() => go("style")}>Edit templates</Btn></Row>
@@ -137,5 +138,44 @@ cuttar headless        # run without a window (launchd)`}</div>
         )}
       </div>
     </div>
+  );
+}
+
+// At module scope: a component defined inside render remounts its input on every keystroke.
+const Row = ({ label, children }) => <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}><span className="muted" style={{ width: 150, flexShrink: 0 }}>{label}</span>{children}</div>;
+
+/* Background music: YouTube videos or playlists (a watch link with &list= brings the whole list),
+   the default pick and level, and how loud every reel is. */
+function Music({ s, st, patch }) {
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [playing, setPlaying] = useState(null);
+  const tracks = s.tracks || [];
+  const lists = [...new Set(tracks.map((t) => t.listUrl))];
+  const fetching = s.jobs.some((j) => j.kind === "music" && (j.status === "queued" || j.status === "running"));
+  const add = async () => { if (!url.trim()) return; setBusy(true); const r = await tryAct("add_music", { url: url.trim() }); setBusy(false); if (r) { setUrl(""); tryAct("snapshot", {}, `${r.added} tracks from ${r.title || "the link"}, downloading`); } };
+  return (
+    <>
+      <Panel title="Background music" sub={`${tracks.filter((t) => t.status === "ready").length} of ${tracks.length} tracks ready${fetching ? " · downloading" : ""}`}>
+        <Row label="Add a link"><input className="input" style={{ width: 420 }} value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="YouTube video or playlist, e.g. …watch?v=…&list=…" /><Btn primary disabled={busy || !url.trim()} onClick={add}>{busy ? "Reading…" : "Add"}</Btn></Row>
+        <Row label="Every reel gets"><Seg value={st.music || "random"} onChange={(v) => patch({ music: v })} options={[["random", "A random track"], ["none", "No music"]]} /><span className="hint">Random is stable: the same reel keeps its track. Pick one per reel on the Reels screen.</span></Row>
+        <Row label="Music level"><input type="range" className="slider" style={{ width: 200 }} min="0" max="1" step="0.05" value={st.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num" style={{ width: 40 }}>{Math.round((st.musicVolume ?? 0.3) * 100)}%</span><span className="hint">It ducks under the speaker by itself.</span></Row>
+        <Row label="Reel loudness"><select className="input" style={{ width: 180 }} value={st.loudness ?? -11} onChange={(e) => patch({ loudness: +e.target.value })}>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><span className="hint">Every render is normalised to this. Per reel on the Reels screen.</span></Row>
+      </Panel>
+      {lists.map((l) => { const ts = tracks.filter((t) => t.listUrl === l); return (
+        <Panel key={l} title={ts[0]?.listTitle || ts[0]?.title || "Tracks"} sub={`${ts.length} tracks`} right={<Btn small danger onClick={() => tryAct("remove_music", { listUrl: l }, "Removed")}>Remove all</Btn>}>
+          {ts.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+              <Dot c={t.status === "ready" ? "mint" : t.status === "failed" ? "coral" : ""} />
+              <span className="ell grow" title={t.error || t.title}>{t.title}</span>
+              <span className="num muted" style={{ width: 44, textAlign: "right" }}>{t.duration ? fmtLong(t.duration) : ""}</span>
+              {t.status === "ready" && <a href="#" onClick={(e) => { e.preventDefault(); setPlaying(playing === t.id ? null : t.id); }}>{playing === t.id ? "stop" : "listen"}</a>}
+              <Btn small icon danger onClick={() => tryAct("remove_music", { id: t.id })} aria-label="Remove">{I.trash}</Btn>
+            </div>
+          ))}
+        </Panel>
+      ); })}
+      {playing && <audio src={fileUrl(tracks.find((t) => t.id === playing)?.path)} autoPlay onEnded={() => setPlaying(null)} />}
+    </>
   );
 }

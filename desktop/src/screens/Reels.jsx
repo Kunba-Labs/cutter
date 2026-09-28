@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { useStore, act, tryAct, fileUrl, fmt, CATS, FORMATS, TRANSITIONS, useSpeed, setSpeed, toast } from "../store.js";
+import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, reelTrack, useSpeed, setSpeed, toast } from "../store.js";
 import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot } from "../ui.jsx";
 import { captionCss, hookCss, litCss } from "./Style.jsx";
 
@@ -37,6 +37,8 @@ export default function Reels({ nav, go }) {
   const [flash, setFlash] = useState(false);
   const [logoDrag, setLogoDrag] = useState(null);
   const [logoAspect, setLogoAspect] = useState(1);
+  // The reel's background track plays under the preview at its level (no ducking here).
+  const music = useRef(null);
   const speed = useSpeed();
   useEffect(() => { if (video.current) video.current.playbackRate = speed; }, [speed]);
 
@@ -48,6 +50,15 @@ export default function Reels({ nav, go }) {
       const v = video.current;
       if (v && c) {
         setT(v.currentTime);
+        const m = music.current;
+        if (m) {
+          if (v.paused) { if (!m.paused) m.pause(); }
+          else {
+            const want = Math.max(0, v.currentTime - c.start) % (m.duration || 1e9);
+            if (Math.abs(m.currentTime - want) > 0.4) m.currentTime = want;
+            if (m.paused) m.play().catch(() => {});
+          }
+        }
         if (teaser.current && !v.paused && c.punchEnd != null && v.currentTime >= c.punchEnd) {
           teaser.current = false; setTeasing(false);
           setFlash(true); setTimeout(() => setFlash(false), 350);
@@ -169,6 +180,9 @@ export default function Reels({ nav, go }) {
   const live = useRef({});
   const setPunch = (a, b) => { if (b - a < 0.8) { toast("A teaser needs at least a second", "err"); return; } patch({ punchStart: +a.toFixed(2), punchEnd: +b.toFixed(2), punchline: wordsIn(a, b), introOn: true }); };
   live.current = { t, setPunch };
+  const track = reelTrack(s.tracks || [], s.settings, c);
+  const musicVol = c.musicVolume ?? s.settings.musicVolume ?? 0.3;
+  if (music.current) music.current.volume = Math.min(1, musicVol);
   // The logo on this reel: its own place when dragged, else the library's.
   const L = s.settings.logo || {};
   const logoOn = !!L.path && (c.logo?.on ?? L.enabled);
@@ -218,6 +232,7 @@ export default function Reels({ nav, go }) {
               {c.captionsOn !== false && (translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(capTpl, k), fontSize: (capTpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e ? litCss(tpl) : undefined}>{w.w} </span>)}</span></div>}
               {logoOn && <img src={fileUrl(L.path)} alt="" draggable={false} onLoad={(e) => setLogoAspect(e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight))} onPointerDown={onLogoDown} onPointerMove={onLogoMove} onPointerUp={onLogoUp} onPointerCancel={onLogoUp} title="Drag to place the logo on this reel" style={{ position: "absolute", left: (frameW - lw) * lx, top: (frameH - lh) * ly, width: lw, height: lh, opacity: L.opacity ?? 1, cursor: logoDrag ? "grabbing" : "move", zIndex: 3 }} />}
               {flash && <div className="teaser-flash" />}
+              {track && <audio ref={music} key={track.id} src={fileUrl(track.path)} loop style={{ display: "none" }} />}
               {teasing && <span className="teaser-badge">teaser</span>}
               {safe && aw < ah && <><div className="safe" style={{ left: 0, right: 0, top: 0, height: frameH * 0.11, borderWidth: "0 0 1px 0" }} /><div className="safe" style={{ left: 0, right: 0, bottom: 0, height: frameH * (format === "tiktok" ? 0.2 : 0.14), borderWidth: "1px 0 0 0" }} /><div className="safe" style={{ right: 0, top: frameH * 0.45, width: 56 * k, height: frameH * 0.4, borderWidth: "0 0 0 1px" }} /></>}
               <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 12, background: "var(--bg)", padding: "1px 5px", borderRadius: 3 }} className="num">{fmt(Math.max(0, t - c.start))} / {fmt(dur)}</span>
@@ -317,10 +332,28 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
               <b style={{ fontSize: 13 }}>Apply to the queue</b>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>Scope</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
-                {[["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
+                {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
               </div>
               <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Applied to ${n} reels`); }}>Apply to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
             </div>
+          </div>
+          <div className="insp-group">
+            <div className="insp-head">Sound<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>music sources</a></div>
+            {(() => {
+              const ready = (s.tracks || []).filter((t) => t.status === "ready");
+              const def = s.settings.music || "random";
+              const picked = reelTrack(s.tracks || [], s.settings, c);
+              return <>
+                <Field label={`Music${picked ? ` · ${picked.title}` : ""}`}><select className="input" value={c.music ?? ""} onChange={(e) => patch({ music: e.target.value || null })}>
+                  <option value="">Default · {def === "none" ? "no music" : "random"}</option><option value="random">Random</option><option value="none">No music</option>
+                  {ready.map((t) => <option key={t.id} value={t.id}>{t.title}{t.duration ? ` · ${fmtLong(t.duration)}` : ""}</option>)}
+                </select></Field>
+                {!ready.length && <span className="hint">No tracks yet. Add a YouTube video or playlist under Settings › Music.</span>}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Music level</span><input type="range" className="slider" min="0" max="1" step="0.05" value={c.musicVolume ?? s.settings.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num muted" style={{ width: 70 }}>{Math.round((c.musicVolume ?? s.settings.musicVolume ?? 0.3) * 100)}%{c.musicVolume == null ? " default" : ""}</span>{c.musicVolume != null && <a href="#" onClick={(e) => { e.preventDefault(); patch({ musicVolume: null }); }}>reset</a>}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Loudness</span><select className="input" value={c.loudness ?? ""} onChange={(e) => patch({ loudness: e.target.value === "" ? null : +e.target.value })}><option value="">Default · {LOUDNESS.find(([v]) => v === (s.settings.loudness ?? -11))?.[1] || `${s.settings.loudness} LUFS`}</option>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+                <span className="hint">The music ducks under the speaker in the render. Use "Apply to the queue" below for every reel.</span>
+              </>;
+            })()}
           </div>
           <div className="insp-group">
             <div className="insp-head">Logo<span className="grow" />{L.path && <Check label="On this reel" checked={c.logo?.on ?? L.enabled} onChange={(v) => patch({ logo: { ...(c.logo || {}), on: v } })} />}</div>

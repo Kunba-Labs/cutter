@@ -11,7 +11,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::model::Settings;
 
-pub const TABLES: &[&str] = &["sources", "channels", "inbox", "transcripts", "candidates", "renders", "posts", "posters", "targets", "jobs", "kv"];
+pub const TABLES: &[&str] = &["sources", "channels", "inbox", "transcripts", "candidates", "renders", "posts", "posters", "targets", "jobs", "tracks", "kv"];
 
 pub struct Db {
     pub conn: Connection,

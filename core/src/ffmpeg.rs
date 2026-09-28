@@ -153,6 +153,10 @@ pub struct RenderSpec<'a> {
     pub logo: Option<LogoSpec<'a>>,
     /// A still appended after the cut, for this many seconds, with a short fade.
     pub end_card: Option<(&'a Path, f64)>,
+    /// Background track (looped to length) and its level (0..1); it ducks under speech.
+    pub music: Option<(&'a Path, f64)>,
+    /// Loudness of the finished file, LUFS.
+    pub loudness: f64,
     /// The source has an audio stream (a screen recording may not).
     pub has_audio: bool,
     /// Output frame rate: the source's, capped at 60.
@@ -267,9 +271,9 @@ pub fn proxy(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64,
     run_with_progress(&mut cmd, duration.max(0.1), out, on_progress)
 }
 
-/// H.264 at the chosen quality, AAC 192k, loudness −14 LUFS. One filter graph: the teaser and the
-/// cut (each with its own captions), the transition with a whoosh, the logo over both, then the end
-/// card. Progress from `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
+/// H.264 at the chosen quality, AAC 192k, normalised to `loudness` LUFS. One filter graph: the teaser
+/// and the cut (each with its own captions), the transition with a whoosh, the logo over both, the end
+/// card, then the background music under all of it. Progress from `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
 pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<(), String> {
     let dur = (r.end - r.start).max(0.1);
     let fps = if r.fps > 1.0 { r.fps.min(60.0) } else { 30.0 };
@@ -330,16 +334,25 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
             fc.push(format!("[{v}][lg]overlay=x='(W-w)*{:.4}':y='(H-h)*{:.4}',format=yuv420p[lv]", l.x.clamp(0.0, 1.0), l.y.clamp(0.0, 1.0)));
             v = "lv".into();
         }
-        if r.has_audio {
-            fc.push(format!("[{a}]loudnorm=I=-14:TP=-1.5:LRA=11,{pcm}[na]"));
-            a = "na".into();
-        }
         if let Some((card, secs)) = r.end_card {
             let ck = input(&mut cmd, vec!["-loop".into(), "1".into(), "-framerate".into(), fps_s.clone(), "-t".into(), format!("{secs:.2}"), "-i".into(), card.display().to_string()]);
             let ca = input(&mut cmd, silent(secs));
             fc.push(format!("[{ck}:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={fps_s},format=yuv420p,settb=AVTB,fade=t=in:st=0:d=0.35[cv]"));
             fc.push(format!("[{v}][{a}][cv][{ca}:a]concat=n=2:v=1:a=1[fv][fa]"));
             (v, a) = ("fv".into(), "fa".into());
+        }
+        if let Some((track, vol)) = r.music {
+            // Looped to the full length, faded at both ends, pushed down while someone speaks.
+            let mk = input(&mut cmd, vec!["-stream_loop".into(), "-1".into(), "-t".into(), format!("{total:.3}"), "-i".into(), track.display().to_string()]);
+            fc.push(format!("[{a}]asplit=2[sp][sc]"));
+            fc.push(format!("[{mk}:a]{pcm},volume={:.3},afade=t=in:d=0.6,afade=t=out:st={:.3}:d=1.2[mu]", vol.clamp(0.0, 1.5), (total - 1.2).max(0.0)));
+            fc.push("[mu][sc]sidechaincompress=threshold=0.03:ratio=5:attack=40:release=600[duck]".into());
+            fc.push("[sp][duck]amix=inputs=2:duration=first:normalize=0[mx]".into());
+            a = "mx".into();
+        }
+        if r.has_audio || r.music.is_some() {
+            fc.push(format!("[{a}]loudnorm=I={:.1}:TP=-1.0:LRA=11,{pcm}[na]", r.loudness.clamp(-24.0, -6.0)));
+            a = "na".into();
         }
         cmd.args(["-filter_complex", &fc.join(";"), "-map", &format!("[{v}]"), "-map", &format!("[{a}]")]);
         cmd.args(encoder).args(["-pix_fmt", "yuv420p", "-r", &fps_s, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(r.out);
@@ -602,7 +615,7 @@ mod tests {
         assert!(ok(&["-f", "lavfi", "-i", "color=red@0.5:s=200x80,format=rgba", "-frames:v", "1", logo.to_str().unwrap()]));
         assert!(ok(&["-f", "lavfi", "-i", "color=blue:s=1080x1920", "-frames:v", "1", card.to_str().unwrap()]));
         let out = d.path().join("out.mp4");
-        let spec = RenderSpec { src: &src, start: 2.0, end: 6.0, out: &out, width: 1080, height: 1920, src_w: 640, src_h: 360, crop_x: 0.5, crop_y: 0.5, crop_z: 1.0, ass: None, intro: Some(Intro { start: 8.0, end: 10.0, ass: None, transition: "swoosh" }), logo: Some(LogoSpec { path: &logo, x: 1.0, y: 0.0, size: 0.2, opacity: 0.8 }), end_card: Some((&card, 1.0)), has_audio: true, fps: 30.0, quality: "fast" };
+        let spec = RenderSpec { src: &src, start: 2.0, end: 6.0, out: &out, width: 1080, height: 1920, src_w: 640, src_h: 360, crop_x: 0.5, crop_y: 0.5, crop_z: 1.0, ass: None, intro: Some(Intro { start: 8.0, end: 10.0, ass: None, transition: "swoosh" }), logo: Some(LogoSpec { path: &logo, x: 1.0, y: 0.0, size: 0.2, opacity: 0.8 }), end_card: Some((&card, 1.0)), music: Some((&src, 0.3)), loudness: -11.0, has_audio: true, fps: 30.0, quality: "fast" };
         render(&spec, |_, _| {}, |_| {}).unwrap();
         let p = probe(&out).unwrap();
         let want = total_seconds(2.0, 6.0, Some((8.0, 10.0, "swoosh")), 1.0);

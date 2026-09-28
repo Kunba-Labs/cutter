@@ -160,6 +160,15 @@ pub struct Candidate {
     /// false: no end card on this reel (None = settings.end_card.enabled).
     #[serde(default)]
     pub end_card_on: Option<bool>,
+    /// Background music: "random" | "none" | a track id. None = settings.music.
+    #[serde(default)]
+    pub music: Option<String>,
+    /// Music level (0..1, before it ducks under speech). None = settings.music_volume.
+    #[serde(default)]
+    pub music_volume: Option<f64>,
+    /// Loudness of the finished reel in LUFS. None = settings.loudness.
+    #[serde(default)]
+    pub loudness: Option<f64>,
     /// Override of settings.formats, or empty for the default.
     pub formats: Vec<String>,
     pub position: i64,
@@ -416,6 +425,25 @@ impl Default for YoutubeAuth {
     }
 }
 
+/// A background track: one YouTube video's audio, found directly or by expanding a playlist.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Track {
+    /// The YouTube video id.
+    pub id: String,
+    pub url: String,
+    pub title: String,
+    pub duration: Option<f64>,
+    /// The link it was added with (a playlist or the video itself) and that list's title.
+    pub list_url: String,
+    pub list_title: String,
+    /// listed | ready | failed
+    pub status: String,
+    pub path: Option<String>,
+    pub error: Option<String>,
+    pub added_at: String,
+}
+
 /// A still logo on every reel: `x`/`y` place it within the free space (0 = left/top, 1 = right/bottom).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -466,6 +494,11 @@ pub struct Settings {
     pub intro: bool,
     pub transition: String,
     pub logo: Logo,
+    /// Background music by default: "random" (a stable pick per reel) | "none".
+    pub music: String,
+    pub music_volume: f64,
+    /// Loudness every reel is normalised to, LUFS (platforms play at about −14; −11 is louder).
+    pub loudness: f64,
     pub auto_detect: bool,
     /// Claude fixes clear transcript errors (word for word) before the reel search.
     pub polish_captions: bool,
@@ -508,6 +541,9 @@ impl Default for Settings {
             intro: true,
             transition: "swoosh".into(),
             logo: Logo::default(),
+            music: "random".into(),
+            music_volume: 0.3,
+            loudness: -11.0,
             auto_detect: true,
             polish_captions: true,
             queue_paused: false,

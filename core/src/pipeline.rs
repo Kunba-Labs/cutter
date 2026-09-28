@@ -154,7 +154,8 @@ pub struct Plan {
     /// (start, end, transition) of the punchline teaser.
     pub intro: Option<(f64, f64, String)>,
     pub card: Option<(PathBuf, f64)>,
-    pub logo: Option<(PathBuf, f64, f64, f64, f64)>,
+    /// (image, x, y, size, opacity, over the end card too)
+    pub logo: Option<(PathBuf, f64, f64, f64, f64, bool)>,
     /// Seconds the music plays on after the reel when there is no end card to play under.
     pub tail: f64,
 }
@@ -178,7 +179,7 @@ pub fn plan(s: &Settings, c: &Candidate, src_duration: Option<f64>, format: &str
     let card = (!clean && c.end_card_on.unwrap_or(s.end_card.enabled)).then(|| s.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(PathBuf::from)).flatten().filter(|p| p.exists()).map(|p| (p, s.end_card.seconds.clamp(0.5, 10.0)));
     let l = &s.logo;
     let logo_on = c.logo["on"].as_bool().unwrap_or(l.enabled);
-    let logo = (!clean && logo_on && !l.path.is_empty() && Path::new(&l.path).exists()).then(|| (PathBuf::from(&l.path), c.logo["x"].as_f64().unwrap_or(l.x), c.logo["y"].as_f64().unwrap_or(l.y), l.size, l.opacity));
+    let logo = (!clean && logo_on && !l.path.is_empty() && Path::new(&l.path).exists()).then(|| (PathBuf::from(&l.path), c.logo["x"].as_f64().unwrap_or(l.x), c.logo["y"].as_f64().unwrap_or(l.y), l.size, l.opacity, l.on_end_card));
     let tail = if !clean && music && card.is_none() { s.music_tail.clamp(0.0, 10.0) } else { 0.0 };
     Plan { start, end, intro, card, logo, tail }
 }
@@ -472,10 +473,10 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let end_card = pl.card.as_ref().map(|(p, s)| (p.as_path(), *s));
     let has_audio = src.meta["hasAudio"].as_bool().unwrap_or_else(|| ffmpeg::probe(&video).map(|p| p.has_audio).unwrap_or(true));
     let intro = pl.intro.as_ref().map(|(a, b, tr)| ffmpeg::Intro { start: *a, end: *b, ass: intro_ass.as_deref(), transition: tr });
-    let logo = pl.logo.as_ref().map(|(p, x, y, size, opacity)| ffmpeg::LogoSpec { path: p, x: *x, y: *y, size: *size, opacity: *opacity });
+    let logo = pl.logo.as_ref().map(|(p, x, y, size, opacity, on_card)| ffmpeg::LogoSpec { path: p, x: *x, y: *y, size: *size, opacity: *opacity, on_card: *on_card });
     let music = track.as_deref().map(|p| (p, c.music_volume.unwrap_or(s.music_volume)));
     let res = ffmpeg::render(
-        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: ass.as_deref(), intro, logo, end_card, music, tail: pl.tail, loudness: c.loudness.unwrap_or(s.loudness), has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: ass.as_deref(), intro, logo, end_card, music, tail: pl.tail, music_on_card: s.end_card.music, loudness: c.loudness.unwrap_or(s.loudness), has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
         |p, m| lib.job_progress(&jid, p, m),
         |pid| lib.register_child(&jid, pid),
     );

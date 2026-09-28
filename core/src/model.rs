@@ -455,11 +455,13 @@ pub struct Logo {
     /// Width as a fraction of the frame width.
     pub size: f64,
     pub opacity: f64,
+    /// The logo stays on over the end card too.
+    pub on_end_card: bool,
 }
 
 impl Default for Logo {
     fn default() -> Self {
-        Self { enabled: false, path: String::new(), x: 0.94, y: 0.04, size: 0.16, opacity: 1.0 }
+        Self { enabled: false, path: String::new(), x: 0.94, y: 0.04, size: 0.16, opacity: 1.0, on_end_card: false }
     }
 }
 
@@ -477,6 +479,9 @@ pub struct EndCard {
     /// empty for the picture blurred behind itself. Kept so a new colour can remake the set.
     pub image: String,
     pub background: String,
+    /// The background music plays on under the card (else it fades out as the card begins).
+    #[serde(default = "yes")]
+    pub music: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -558,7 +563,7 @@ impl Default for Settings {
             translate_to: String::new(),
             caption_style: CaptionStyle::default(),
             caption_templates: caption_templates(),
-            end_card: EndCard { enabled: false, seconds: 2.5, paths: serde_json::json!({}), poster_id: None, image: String::new(), background: String::new() },
+            end_card: EndCard { enabled: false, seconds: 2.5, paths: serde_json::json!({}), poster_id: None, image: String::new(), background: String::new(), music: true },
             render_quality: "best".into(),
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
             channel_name: String::new(),
@@ -585,6 +590,10 @@ pub struct Tools {
     pub claude: Option<String>,
     pub ollama: Option<String>,
     pub uv: Option<String>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 pub fn now() -> String {

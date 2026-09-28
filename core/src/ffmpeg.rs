@@ -157,6 +157,8 @@ pub struct RenderSpec<'a> {
     pub music: Option<(&'a Path, f64)>,
     /// Seconds the last frame holds (fading to black) after the reel so the music can play on.
     pub tail: f64,
+    /// The music plays on under the end card (else it fades out where the card begins).
+    pub music_on_card: bool,
     /// Loudness of the finished file, LUFS.
     pub loudness: f64,
     /// The source has an audio stream (a screen recording may not).
@@ -182,6 +184,21 @@ pub struct LogoSpec<'a> {
     /// Width as a fraction of the frame width.
     pub size: f64,
     pub opacity: f64,
+    /// Over the end card too (else it stops where the card starts).
+    pub on_card: bool,
+}
+
+/// The logo's filters over the stream `v`, the logo image being input `lk`; returns them and the new label.
+fn logo_filters(l: &LogoSpec, lk: usize, w: i64, v: &str) -> (Vec<String>, String) {
+    let lw = (((w as f64 * l.size.clamp(0.03, 0.8)) / 2.0).round() as i64 * 2).max(2);
+    let out = format!("{v}l");
+    (
+        vec![
+            format!("[{lk}:v]scale={lw}:-2,format=rgba,colorchannelmixer=aa={:.2}[lg]", l.opacity.clamp(0.05, 1.0)),
+            format!("[{v}][lg]overlay=x='(W-w)*{:.4}':y='(H-h)*{:.4}',format=yuv420p[{out}]", l.x.clamp(0.0, 1.0), l.y.clamp(0.0, 1.0)),
+        ],
+        out,
+    )
 }
 
 /// The teaser→reel transitions: (xfade name or None for a hard cut, seconds, whoosh sound).
@@ -329,12 +346,13 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
                 a = "jw".into();
             }
         }
-        if let Some(l) = &r.logo {
+        // The logo goes over the whole file when it stays on the end card, else over the reel only.
+        let logo_last = r.end_card.is_some() && r.logo.as_ref().is_some_and(|l| l.on_card);
+        if let Some(l) = r.logo.as_ref().filter(|_| !logo_last) {
             let lk = input(&mut cmd, vec!["-i".into(), l.path.display().to_string()]);
-            let lw = (((w as f64 * l.size.clamp(0.03, 0.8)) / 2.0).round() as i64 * 2).max(2);
-            fc.push(format!("[{lk}:v]scale={lw}:-2,format=rgba,colorchannelmixer=aa={:.2}[lg]", l.opacity.clamp(0.05, 1.0)));
-            fc.push(format!("[{v}][lg]overlay=x='(W-w)*{:.4}':y='(H-h)*{:.4}',format=yuv420p[lv]", l.x.clamp(0.0, 1.0), l.y.clamp(0.0, 1.0)));
-            v = "lv".into();
+            let (f, out) = logo_filters(l, lk, w, &v);
+            fc.extend(f);
+            v = out;
         }
         if r.tail > 0.0 {
             // The picture holds and fades out; the speech track gets silence to match.
@@ -350,11 +368,18 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
             fc.push(format!("[{v}][{a}][cv][{ca}:a]concat=n=2:v=1:a=1[fv][fa]"));
             (v, a) = ("fv".into(), "fa".into());
         }
+        if let Some(l) = r.logo.as_ref().filter(|_| logo_last) {
+            let lk = input(&mut cmd, vec!["-i".into(), l.path.display().to_string()]);
+            let (f, out) = logo_filters(l, lk, w, &v);
+            fc.extend(f);
+            v = out;
+        }
         if let Some((track, vol)) = r.music {
             // Looped to the full length, faded at both ends, pushed down while someone speaks.
-            let mk = input(&mut cmd, vec!["-stream_loop".into(), "-1".into(), "-t".into(), format!("{total:.3}"), "-i".into(), track.display().to_string()]);
+            let len = if r.music_on_card { total } else { total - card_s };
+            let mk = input(&mut cmd, vec!["-stream_loop".into(), "-1".into(), "-t".into(), format!("{len:.3}"), "-i".into(), track.display().to_string()]);
             fc.push(format!("[{a}]asplit=2[sp][sc]"));
-            fc.push(format!("[{mk}:a]{pcm},volume={:.3},afade=t=in:d=0.6,afade=t=out:st={:.3}:d=1.2[mu]", vol.clamp(0.0, 1.5), (total - 1.2).max(0.0)));
+            fc.push(format!("[{mk}:a]{pcm},volume={:.3},afade=t=in:d=0.6,afade=t=out:st={:.3}:d=1.2[mu]", vol.clamp(0.0, 1.5), (len - 1.2).max(0.0)));
             fc.push("[mu][sc]sidechaincompress=threshold=0.03:ratio=5:attack=40:release=600[duck]".into());
             fc.push("[sp][duck]amix=inputs=2:duration=first:normalize=0[mx]".into());
             a = "mx".into();
@@ -635,7 +660,7 @@ mod tests {
         assert!(ok(&["-f", "lavfi", "-i", "color=red@0.5:s=200x80,format=rgba", "-frames:v", "1", logo.to_str().unwrap()]));
         assert!(ok(&["-f", "lavfi", "-i", "color=blue:s=1080x1920", "-frames:v", "1", card.to_str().unwrap()]));
         let out = d.path().join("out.mp4");
-        let spec = RenderSpec { src: &src, start: 2.0, end: 6.0, out: &out, width: 1080, height: 1920, src_w: 640, src_h: 360, crop_x: 0.5, crop_y: 0.5, crop_z: 1.0, ass: None, intro: Some(Intro { start: 8.0, end: 10.0, ass: None, transition: "swoosh" }), logo: Some(LogoSpec { path: &logo, x: 1.0, y: 0.0, size: 0.2, opacity: 0.8 }), end_card: Some((&card, 1.0)), music: Some((&src, 0.3)), tail: 0.0, loudness: -11.0, has_audio: true, fps: 30.0, quality: "fast" };
+        let spec = RenderSpec { src: &src, start: 2.0, end: 6.0, out: &out, width: 1080, height: 1920, src_w: 640, src_h: 360, crop_x: 0.5, crop_y: 0.5, crop_z: 1.0, ass: None, intro: Some(Intro { start: 8.0, end: 10.0, ass: None, transition: "swoosh" }), logo: Some(LogoSpec { path: &logo, x: 1.0, y: 0.0, size: 0.2, opacity: 0.8, on_card: true }), end_card: Some((&card, 1.0)), music: Some((&src, 0.3)), tail: 0.0, music_on_card: false, loudness: -11.0, has_audio: true, fps: 30.0, quality: "fast" };
         render(&spec, |_, _| {}, |_| {}).unwrap();
         let p = probe(&out).unwrap();
         let want = total_seconds(2.0, 6.0, Some((8.0, 10.0, "swoosh")), 1.0);

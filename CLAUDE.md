@@ -71,7 +71,9 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   `music_tail` s (last frame held, fading to black; `Plan.tail`); with one it plays under the card.
 - **End card** = poster cards (`use_end_cards`) or any picture (`end_card_image`): centred on
   `end_card.background` or on its own blur; `image`/`background` are kept so a colour change remakes
-  the set, and cleared when poster cards take over. Length 0.5–10 s everywhere.
+  the set, and cleared when poster cards take over. Length 0.5–10 s everywhere. `end_card.music`:
+  music on under the card (default) or fading where it starts; `logo.on_end_card`: the logo overlay
+  goes over the whole file instead of the reel only.
 - **Panels resize** by the `Grip` in the gap (`ui.jsx useSize`, remembered in localStorage per key).
 - **Nothing posts without a confirm** unless a channel says `auto_schedule`. YouTube uploads
   as private with `publishAt`; TikTok/Meta are not linked (need approved apps): a confirmed post

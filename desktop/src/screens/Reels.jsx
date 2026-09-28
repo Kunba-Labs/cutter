@@ -83,7 +83,8 @@ export default function Reels({ nav, go }) {
           const tail = !card && music.current ? s.settings.musicTail ?? 3 : 0;
           if (card || tail > 0) {
             // Hold the closing card (or the fading frame) for its duration, then loop.
-            v.pause(); holding.current = true; setHold(card ? "card" : "tail");
+            // Music on over the card only when the library says so; the tail is there for the music.
+            v.pause(); holding.current = !card || ec.music !== false; setHold(card ? "card" : "tail");
             setTimeout(() => { holding.current = false; setHold(false); v.currentTime = c.start; v.play(); }, (card ? ec.seconds || 2.5 : tail) * 1000);
           } else {
             v.currentTime = c.start;
@@ -94,7 +95,7 @@ export default function Reels({ nav, go }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [c?.start, c?.end, c?.punchEnd, c?.endCardOn, s.settings.endCard?.enabled, aspectKey]);
+  }, [c?.start, c?.end, c?.punchEnd, c?.endCardOn, s.settings.endCard?.enabled, s.settings.endCard?.music, s.settings.endCard?.seconds, s.settings.endCard?.paths, s.settings.musicTail, aspectKey]);
   useEffect(() => {
     const onKey = (e) => {
       if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
@@ -249,7 +250,7 @@ export default function Reels({ nav, go }) {
               {hold === "card" && s.settings.endCard?.paths?.[aspectKey] && <img src={fileUrl(s.settings.endCard.paths[aspectKey])} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
               {c.titleOn !== false && hookTpl.hook !== false && c.hook && (teasing || (!introOn && t >= c.start - 0.3 && t - c.start < (hookTpl.hookSeconds || 2.5))) && <div className="hook" style={{ top: frameH * ((hookTpl.hookPct ?? 8) / 100) }}><span style={hookCss(hookTpl, k)}>{c.hook}</span></div>}
               {c.captionsOn !== false && (translated ? !!trans : line.length > 0) && <div className="cap" style={{ bottom: frameH * (capPct / 100 + (format === "tiktok" ? 0.08 : 0)) - 10, alignItems: tpl.align === "left" ? "flex-start" : "center", pointerEvents: "auto", cursor: capDrag ? "grabbing" : "ns-resize" }} onPointerDown={onCapDown} onPointerMove={onCapMove} onPointerUp={onCapUp} onPointerCancel={onCapUp} title="Drag up or down"><span style={{ ...captionCss(capTpl, k), fontSize: (capTpl.size || 42) * (frameH / 1920) }}>{translated ? trans.text : line.map((w, i) => <span key={i} style={t >= w.s && t < w.e ? litCss(tpl) : undefined}>{w.w} </span>)}</span></div>}
-              {logoOn && <img src={fileUrl(L.path)} alt="" draggable={false} onLoad={(e) => setLogoAspect(e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight))} onPointerDown={onLogoDown} onPointerMove={onLogoMove} onPointerUp={onLogoUp} onPointerCancel={onLogoUp} title="Drag to place the logo on this reel" style={{ position: "absolute", left: (frameW - lw) * lx, top: (frameH - lh) * ly, width: lw, height: lh, opacity: L.opacity ?? 1, cursor: logoDrag ? "grabbing" : "move", zIndex: 3 }} />}
+              {logoOn && (hold !== "card" || L.onEndCard) && <img src={fileUrl(L.path)} alt="" draggable={false} onLoad={(e) => setLogoAspect(e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight))} onPointerDown={onLogoDown} onPointerMove={onLogoMove} onPointerUp={onLogoUp} onPointerCancel={onLogoUp} title="Drag to place the logo on this reel" style={{ position: "absolute", left: (frameW - lw) * lx, top: (frameH - lh) * ly, width: lw, height: lh, opacity: L.opacity ?? 1, cursor: logoDrag ? "grabbing" : "move", zIndex: 3 }} />}
               {flash && <div className="teaser-flash" />}
               {track && <audio ref={music} key={track.id} src={fileUrl(track.path)} loop style={{ display: "none" }} />}
               {teasing && <span className="teaser-badge">teaser</span>}
@@ -386,6 +387,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
             {L.path ? <>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}><img src={fileUrl(L.path)} alt="" style={{ height: 28, maxWidth: 80, objectFit: "contain", background: "#0006", borderRadius: 3 }} /><span className="muted" style={{ width: 34 }}>size</span><input type="range" className="slider" min="0.05" max="0.4" step="0.01" value={L.size ?? 0.16} onChange={(e) => tryAct("settings", { patch: { logo: { size: +e.target.value } } })} /><span className="num muted" style={{ width: 34 }}>{Math.round((L.size ?? 0.16) * 100)}%</span></div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 48 }}>opacity</span><input type="range" className="slider" min="0.2" max="1" step="0.05" value={L.opacity ?? 1} onChange={(e) => tryAct("settings", { patch: { logo: { opacity: +e.target.value } } })} /><Btn small onClick={chooseLogo}>Change…</Btn></div>
+              <Check label="Also on the end card" checked={!!L.onEndCard} onChange={(v) => tryAct("settings", { patch: { logo: { onEndCard: v } } })} />
               <span className="hint">Drag the logo in the preview to place it on this reel.{c.logo?.x != null && <> <a href="#" onClick={(e) => { e.preventDefault(); tryAct("settings", { patch: { logo: { x: c.logo.x, y: c.logo.y } } }, "Place is the default now"); }}>make this the default place</a> · <a href="#" onClick={(e) => { e.preventDefault(); patch({ logo: { x: null, y: null } }); }}>reset</a>.</>}</span>
             </> : <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Btn small onClick={chooseLogo}>Choose logo…</Btn><span className="hint">PNG with transparency. Goes on every reel; drag to place.</span></div>}
           </div>
@@ -397,6 +399,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, hookTpl, app
               {ec.background && <input type="color" defaultValue={ec.background} key={ec.background} onChange={(e) => setCardColor(e.target.value)} style={{ width: 30, height: 24, border: 0, background: "none", padding: 0 }} title="Background behind the picture" />}
               <span className="muted">for</span><input className="input num" type="number" min="0.5" max="10" step="0.5" style={{ width: 58 }} value={ec.seconds ?? 2.5} onChange={(e) => tryAct("settings", { patch: { endCard: { seconds: +e.target.value || 2.5 } } })} /><span className="muted">s</span>
             </div>}
+            {ec.paths?.[aspectKey] && <Check label="Music plays over the end card" checked={ec.music !== false} onChange={(v) => tryAct("settings", { patch: { endCard: { music: v } } })} />}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><Btn small onClick={chooseCard}>Choose image…</Btn><Btn small onClick={() => go("posters")}>Draw from a poster</Btn></div>
           </div>
           <div className="insp-group">

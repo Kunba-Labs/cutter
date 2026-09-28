@@ -140,6 +140,26 @@ pub struct Candidate {
     /// Target ids this reel goes to. Empty: every enabled target.
     #[serde(default)]
     pub targets: Vec<String>,
+    /// The punchline played first as a teaser, in source seconds (inside the reel or anywhere in the lecture).
+    #[serde(default)]
+    pub punch_start: Option<f64>,
+    #[serde(default)]
+    pub punch_end: Option<f64>,
+    /// The punchline's words, as the brain quoted them (for the UI).
+    #[serde(default)]
+    pub punchline: String,
+    /// false: no teaser before the reel (None = settings.intro).
+    #[serde(default)]
+    pub intro_on: Option<bool>,
+    /// Transition from teaser to reel (see ffmpeg::transition); None = settings.transition.
+    #[serde(default)]
+    pub transition: Option<String>,
+    /// {"on": bool, "x": 0..1, "y": 0..1}: this reel's logo; missing keys take settings.logo.
+    #[serde(default)]
+    pub logo: Value,
+    /// false: no end card on this reel (None = settings.end_card.enabled).
+    #[serde(default)]
+    pub end_card_on: Option<bool>,
     /// Override of settings.formats, or empty for the default.
     pub formats: Vec<String>,
     pub position: i64,
@@ -302,6 +322,8 @@ pub struct CaptionStyle {
     pub hook_seconds: f64,
     pub watermark: bool,
     pub translation: bool,
+    /// The current word grows a little (karaoke only).
+    pub word_pop: bool,
 }
 
 impl Default for CaptionStyle {
@@ -333,9 +355,14 @@ impl Default for CaptionStyle {
             hook_seconds: 2.5,
             watermark: true,
             translation: false,
+            word_pop: false,
         }
     }
 }
+
+pub const TEMPLATES_VERSION: i64 = 2;
+/// Templates that arrived with version 2 (bundled fonts).
+pub const TEMPLATES_V2: &[&str] = &["Punch", "Anton", "Poppins soft", "Bebas", "Quote", "Lilita"];
 
 /// The looks that work on Shorts, Reels and TikTok. Editable copies live in settings.
 pub fn caption_templates() -> Vec<CaptionStyle> {
@@ -347,6 +374,12 @@ pub fn caption_templates() -> Vec<CaptionStyle> {
         CaptionStyle { name: "Boxed".into(), size: 40, words_per_line: 4, highlight: "#3EF2A3".into(), outline_px: 0, boxed: true, hook_size: 38, hook_boxed: true, hook_box_color: "#3EF2A3".into(), hook_color: "#14061A".into(), ..base.clone() },
         CaptionStyle { name: "Magenta".into(), size: 46, highlight: "#F52ACB".into(), outline_px: 5, hook_size: 44, hook_boxed: true, hook_box_color: "#F52ACB".into(), hook_color: "#FFFFFF".into(), hook_uppercase: true, ..base.clone() },
         CaptionStyle { name: "Lower third".into(), preset: "lower".into(), size: 36, position_pct: 12, words_per_line: 6, highlight: "#FFFFFF".into(), outline_px: 0, boxed: true, align: "left".into(), hook_size: 30, hook_boxed: true, hook_uppercase: true, hook_pct: 6, ..base.clone() },
+        CaptionStyle { name: "Punch".into(), font: "Montserrat ExtraBold".into(), size: 58, position_pct: 32, words_per_line: 2, highlight: "#FFD400".into(), outline_px: 7, uppercase: true, word_pop: true, hook_font: "Montserrat ExtraBold".into(), hook_size: 54, hook_color: "#14061A".into(), hook_boxed: true, hook_box_color: "#FFD400".into(), hook_uppercase: true, ..base.clone() },
+        CaptionStyle { name: "Anton".into(), font: "Anton".into(), size: 64, position_pct: 30, words_per_line: 3, highlight: "#3EF2A3".into(), outline_px: 5, uppercase: true, word_pop: true, hook_font: "Anton".into(), hook_size: 62, hook_boxed: false, hook_uppercase: true, hook_pct: 9, ..base.clone() },
+        CaptionStyle { name: "Poppins soft".into(), font: "Poppins ExtraBold".into(), size: 44, words_per_line: 4, highlight: "#37D2E8".into(), outline_px: 2, hook_font: "Poppins ExtraBold".into(), hook_size: 42, hook_boxed: true, hook_box_color: "#FFFFFF".into(), hook_color: "#14061A".into(), ..base.clone() },
+        CaptionStyle { name: "Bebas".into(), font: "Bebas Neue".into(), size: 72, position_pct: 30, words_per_line: 3, highlight: "#FF8A5C".into(), outline_px: 4, uppercase: true, hook_font: "Bebas Neue".into(), hook_size: 76, hook_boxed: false, hook_uppercase: true, ..base.clone() },
+        CaptionStyle { name: "Quote".into(), font: "Georgia".into(), size: 42, words_per_line: 5, highlight: "#FFFFFF".into(), outline_px: 0, boxed: true, bold: false, hook_font: "Didot".into(), hook_size: 48, hook_boxed: false, hook_bold: false, hook_italic: true, ..base.clone() },
+        CaptionStyle { name: "Lilita".into(), font: "Lilita One".into(), size: 56, position_pct: 30, words_per_line: 3, highlight: "#F52ACB".into(), outline_px: 6, word_pop: true, hook_font: "Lilita One".into(), hook_size: 56, hook_boxed: true, hook_box_color: "#F52ACB".into(), ..base.clone() },
     ]
 }
 
@@ -383,6 +416,25 @@ impl Default for YoutubeAuth {
     }
 }
 
+/// A still logo on every reel: `x`/`y` place it within the free space (0 = left/top, 1 = right/bottom).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Logo {
+    pub enabled: bool,
+    pub path: String,
+    pub x: f64,
+    pub y: f64,
+    /// Width as a fraction of the frame width.
+    pub size: f64,
+    pub opacity: f64,
+}
+
+impl Default for Logo {
+    fn default() -> Self {
+        Self { enabled: false, path: String::new(), x: 0.94, y: 0.04, size: 0.16, opacity: 1.0 }
+    }
+}
+
 /// The closing card appended to every reel: one image per aspect.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -405,8 +457,15 @@ pub struct Settings {
     pub brain: String,
     pub claude_bin: String,
     pub ollama_model: String,
+    /// What the reel finder aims for; a thought that closes sooner stays shorter.
+    pub target_reel_s: i64,
+    /// Hard limit: a thought that needs longer than this is left out, never cut off.
     pub max_reel_s: i64,
     pub min_score: i64,
+    /// Every reel opens with its punchline, then the transition, then the reel.
+    pub intro: bool,
+    pub transition: String,
+    pub logo: Logo,
     pub auto_detect: bool,
     /// Claude fixes clear transcript errors (word for word) before the reel search.
     pub polish_captions: bool,
@@ -429,6 +488,8 @@ pub struct Settings {
     pub poster_reference_media: String,
     pub poster_history: Vec<String>,
     pub whatsapp_link: String,
+    /// Built-in templates added after a library was made arrive once, when this is behind.
+    pub templates_version: i64,
 }
 
 impl Default for Settings {
@@ -441,8 +502,12 @@ impl Default for Settings {
             brain: "claude".into(),
             claude_bin: "claude".into(),
             ollama_model: "gemma4:26b-mlx".into(),
-            max_reel_s: 40,
+            target_reel_s: 60,
+            max_reel_s: 90,
             min_score: 6,
+            intro: true,
+            transition: "swoosh".into(),
+            logo: Logo::default(),
             auto_detect: true,
             polish_captions: true,
             queue_paused: false,
@@ -461,6 +526,7 @@ impl Default for Settings {
             poster_reference_media: String::new(),
             poster_history: Vec::new(),
             whatsapp_link: String::new(),
+            templates_version: 0,
         }
     }
 }

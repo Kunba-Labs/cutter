@@ -42,6 +42,14 @@ fn esc(s: &str) -> String {
     s.replace('\\', "\\\\").replace('{', "(").replace('}', ")").replace('\n', " ")
 }
 
+/// Faces with one weight: asking libass for bold would smear them (faux bold), so they are drawn as
+/// they are. The preview does the same (store.js FIXED_FONTS).
+pub const FIXED_FONTS: &[&str] = &["Montserrat ExtraBold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Lilita One", "Arial Black", "Impact"];
+
+fn weight(font: &str, bold: bool) -> i64 {
+    if bold && !FIXED_FONTS.contains(&font) { -1 } else { 0 }
+}
+
 pub fn is_rtl(lang: &str) -> bool {
     matches!(lang, "ar" | "ur" | "fa" | "he" | "ps" | "sd")
 }
@@ -75,7 +83,8 @@ pub fn build(c: &CaptionSpec) -> String {
     let main_outline = if st.boxed { "&H66000000" } else { "&H00000000" };
     let align = if st.align == "left" || st.preset == "lower" { 1 } else { 2 };
     let margin_l = if align == 1 { 60 } else { 40 };
-    let bold = if st.bold { -1 } else { 0 };
+    let bold = weight(font, st.bold);
+    let hfont = if st.hook_font.is_empty() { font } else { st.hook_font.as_str() };
     let mut out = format!(
         "[Script Info]\nScriptType: v4.00+\nPlayResX: {w}\nPlayResY: {h}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
 Style: Main,{font},{size},{primary},{white},{main_outline},{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_l},40,{bottom},1\n\
@@ -86,12 +95,12 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H66000000,&H80000000,-1,0,0,0,100
         h = c.height,
         tsize = (size as f64 * 0.55) as i64,
         tbottom = bottom - (size as f64 * 1.9) as i64,
-        hfont = if st.hook_font.is_empty() { font } else { st.hook_font.as_str() },
+        hfont = hfont,
         hsize = (st.hook_size.max(12) as f64 * EM).round() as i64,
         hcolor = ass_color(&st.hook_color),
         hback = "&H80000000",
         hbox = if st.hook_boxed { format!("&H00{}", &ass_color(&st.hook_box_color)[4..]) } else { "&H00000000".to_string() },
-        hbold = if st.hook_bold { -1 } else { 0 },
+        hbold = weight(hfont, st.hook_bold),
         hitalic = if st.hook_italic { -1 } else { 0 },
         hborder = if st.hook_boxed { 3 } else { 1 },
         houtline = if st.hook_boxed { (st.hook_size.max(12) as f64 * EM * 0.3) as i64 } else { 3 },
@@ -102,8 +111,12 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H66000000,&H80000000,-1,0,0,0,100
         mpad = (size as f64 * 0.45 * 0.25) as i64,
     );
     let dur = c.clip_end - c.clip_start;
-    let hl_tag = format!("{{\\c{hl}&}}");
-    let base_tag = format!("{{\\c{primary}&}}");
+    // The lit word: the highlight colour, and 115 % when the template pops it.
+    let lit = !st.highlight.eq_ignore_ascii_case(&st.text_color);
+    let pop = if st.word_pop { "\\fscx115\\fscy115" } else { "" };
+    let unpop = if st.word_pop { "\\fscx100\\fscy100" } else { "" };
+    let hl_tag = format!("{{{}{pop}}}", if lit { format!("\\c{hl}&") } else { String::new() });
+    let base_tag = format!("{{\\c{primary}&{unpop}}}");
     let rtl_tag = if rtl { "{\\q2}" } else { "" };
 
     let translated: Vec<&Segment> = c.translation.iter().filter(|t| t.end > c.clip_start && t.start < c.clip_end && !t.text.trim().is_empty()).collect();
@@ -144,7 +157,7 @@ Style: Mark,{font},{msize},&H00FFFFFF,{white},&H66000000,&H80000000,-1,0,0,0,100
                     .enumerate()
                     .map(|(j, (w, _, _))| {
                         let w = if st.uppercase { w.to_uppercase() } else { w.clone() };
-                        if j == k && !st.highlight.eq_ignore_ascii_case(&st.text_color) { format!("{hl_tag}{}{base_tag}", esc(&w)) } else { esc(&w) }
+                        if j == k && (lit || st.word_pop) { format!("{hl_tag}{}{base_tag}", esc(&w)) } else { esc(&w) }
                     })
                     .collect();
                 out.push_str(&format!("Dialogue: 0,{},{},Main,,0,0,0,,{rtl_tag}{}\n", ts(start), ts(end), text.join(" ")));
@@ -193,6 +206,11 @@ mod tests {
         assert!(ass.contains("&H00A3F23E")); // #3EF2A3 as BGR
         assert!(ass.contains("Hook,,0,0,0,,Sabr"));
         assert_eq!(ts(61.5), "0:01:01.50");
+        // A one-weight face is never asked for bold; the lit word pops when the template says so.
+        let st = CaptionStyle { font: "Anton".into(), word_pop: true, ..CaptionStyle::default() };
+        let ass = build(&CaptionSpec { segments: &segs, translation: &[], clip_start: 10.0, clip_end: 12.0, width: 1080, height: 1920, extra_bottom: 0.0, style: &st, language: "nl", hook: "", watermark: "", use_translation: false, hook_bottom: false });
+        assert!(ass.contains("Style: Main,Anton,") && ass.contains(",0,0,0,0,100,100,"));
+        assert!(ass.contains("\\fscx115\\fscy115}sabr{"));
         assert!(srt(&segs, 10.0, 12.0).starts_with("1\n00:00:00,000 --> 00:00:02,000\nsabr"));
     }
 }

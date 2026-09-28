@@ -118,6 +118,6 @@ mod tests {
         assert!(db.fts_search("zzz").unwrap().is_empty());
         db.delete("sources", "s-1").unwrap();
         assert!(db.all::<Source>("sources").unwrap().is_empty());
-        assert_eq!(db.settings().max_reel_s, 40);
+        assert_eq!(db.settings().max_reel_s, 90);
     }
 }

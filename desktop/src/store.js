@@ -124,6 +124,13 @@ export const ago = (iso) => {
 export const STAGES = { added: ["muted", "Added"], downloading: ["pink", "Downloading"], downloaded: ["mint", "Downloaded"], transcribing: ["pink", "Transcribing"], transcribed: ["mint", "Transcribed"], detecting: ["pink", "Finding reels"], review: ["pink", "Review"], done: ["mint", "Done"], failed: ["coral", "Failed"] };
 export const LANGS = [["auto", "Auto-detect"], ["nl", "Dutch"], ["en", "English"], ["ur", "Urdu"], ["ar", "Arabic"], ["tr", "Turkish"], ["fr", "French"], ["de", "German"], ["id", "Indonesian"], ["ms", "Malay"], ["bn", "Bengali"], ["hi", "Hindi"], ["fa", "Persian"], ["so", "Somali"]];
 export const CATS = ["fact", "statement", "hook", "story", "dua", "reminder", "qa"];
+/* Caption fonts, each checked to resolve to the same face in libass (render) and WebKit (preview).
+   The bundled ones ship in src/fonts. FIXED_FONTS have one weight: never bolded on either side
+   (captions::FIXED_FONTS in the core). */
+export const FONTS = ["Helvetica Neue", "Avenir Next", "Avenir Next Condensed", "Futura", "Gill Sans", "DIN Condensed", "Arial Black", "Impact", "Montserrat ExtraBold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Lilita One", "SF Pro Rounded", "Rockwell", "American Typewriter", "Georgia", "Baskerville", "Didot", "Menlo", "Geeza Pro"];
+export const FIXED_FONTS = ["Montserrat ExtraBold", "Poppins ExtraBold", "Anton", "Bebas Neue", "Archivo Black", "Lilita One", "Arial Black", "Impact"];
+/* Teaser → reel transitions (ffmpeg::TRANSITIONS). */
+export const TRANSITIONS = [["swoosh", "Swoosh"], ["zoom", "Zoom"], ["slide", "Slide up"], ["blur", "Blur"], ["flash", "Flash"], ["fade", "Fade"], ["cut", "Cut"]];
 export const FORMATS = [["shorts", "Shorts"], ["reels", "Reels"], ["tiktok", "TikTok"], ["feed", "Feed 4:5"], ["landscape", "16:9"]];
 
 /* Preview playback speed, shared by the Reels and Transcript players. */

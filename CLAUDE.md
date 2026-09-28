@@ -46,9 +46,21 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - **One process owns the database.** The app (or `cuttar headless`) runs the workers, the
   scheduler and the HTTP server on a fixed port; the CLI and Claude go through it. Never open
   cuttar.sqlite from a second process.
-- **Reels are complete thoughts, ≤ `settings.max_reel_s` (40).** The brain gets segment
-  indices, never timestamps; `brain::to_candidates` clamps at a segment boundary. The trimmer
-  refuses a longer cut.
+- **Reels are complete thoughts, aimed at `settings.target_reel_s` (60), never past
+  `max_reel_s` (90; a stored limit below the target is lifted to 1.5×).** The brain gets segment
+  indices, never timestamps, and must keep the whole point without padding. `brain::to_candidates`
+  DROPS a draft over the max instead of cutting it (a clamped reel loses its point). The trimmer
+  refuses a longer cut; Trim has ± line / ± 1 s at both edges over a ±15 s context strip.
+- **Teaser first.** Each reel opens with its punchline (`candidate.punch_start/end`, found by the
+  brain as `punch_seg` + a verbatim quote located on word timings, `brain::punch_times`, ≤ 8 s),
+  then `ffmpeg::TRANSITIONS` (xfade + a pink-noise whoosh), then the reel. The title rides on the
+  teaser. `settings.intro` / `candidate.intro_on`, `transition`; `punchline` job asks again.
+  One filter graph in `ffmpeg::render`: teaser+cut (own ASS each) → xfade → logo → loudnorm → end card.
+  `pipeline::plan` decides what a file gets and its length; verify_renders uses the same plan.
+- **Every reel also renders `clean.mp4`** (`reel_formats`): the bare cut, no captions, title,
+  teaser, logo or end card, no cover. captions.srt matches it.
+- **Logo**: `settings.logo` (path, size, opacity, default place); `candidate.logo` {on,x,y} per
+  reel, dragged in the preview. x/y place it within the free space (0..1), same maths both sides.
 - **Nothing posts without a confirm** unless a channel says `auto_schedule`. YouTube uploads
   as private with `publishAt`; TikTok/Meta are not linked (need approved apps): a confirmed post
   there fails with the file path + caption.txt for a manual upload. Messy is out (Waseem, 2026-09-26).
@@ -88,6 +100,10 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 
 - libass: BorderStyle 3 (opaque box) is drawn in the OUTLINE colour, padded by the Outline width;
   BackColour is only the shadow. Outline 0 means no box at all.
+- Caption fonts: every name in store.js `FONTS` was checked to resolve in libass (`-loglevel verbose`
+  shows `fontselect:`). Six OFL fonts ship in desktop/src/fonts; the core `include_bytes!`s them into
+  `<data>/fonts` and every `ass=` goes through `ffmpeg::ass_filter` (adds `fontsdir`). One-weight faces
+  (`FIXED_FONTS`, both sides) are never bolded. The preview asks 700/400 like libass, not 800/500.
 - libass sizes a font by its line height, CSS by its em: captions::build multiplies sizes by
   EM = 1.18 so a render matches the preview (Helvetica Bold). Other fonts differ a little.
 

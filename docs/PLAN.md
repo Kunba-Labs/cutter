@@ -40,6 +40,15 @@ Pro-editor panels on deep navy (#1A1D2A), 26 px header strips, sentence-case tit
 - 2026-09-26 — Stack: Rust core + Tauri (patterned on membox/inbox2), SQLite document tables, `cuttar` CLI over the app's loopback HTTP, MCP server for Claude Code. Build started the same day.
 - 2026-09-26 — Mock imagery generated with Higgsfield nano_banana (9 images, ~credits from 241 → see balance); assets stored on the canvas.
 
+## Decisions 2026-09-28 (reel editing round)
+
+- Reel length: aim 60 s (setting + a "~N s" picker by Find again), hard max 1.5× (90 s). Over-max drafts are dropped, not truncated; prompt forbids padding with unrelated lines. Replaces the 40 s cap.
+- Teaser: punchline (brain-chosen, editable: Cmd-click words, playhead, "Ask Claude") plays first, then a transition (swoosh default; zoom, slide, blur, flash, fade, cut), then the reel. On by default; per reel on/off.
+- Clean cut: every reel also renders clean.mp4 (no captions/title/teaser/logo/end card).
+- Logo: one library logo, per-reel on/off and drag-to-place; size/opacity global.
+- End card: was only under Posters/Settings; now also on the Reels inspector, and any image can be the card (padded to 9:16, 4:5, 16:9).
+- Fonts: six OFL display fonts bundled (Montserrat, Poppins, Anton, Bebas Neue, Archivo Black, Lilita One) + six new templates; preview weights fixed to match libass.
+
 ## Open questions for Waseem
 
 - Waiting video: burned countdown (render on the day) vs live clock in OBS — default burned.

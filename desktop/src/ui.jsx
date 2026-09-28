@@ -30,8 +30,8 @@ export const Field = ({ label, children }) => (
   <label className="field"><span>{label}</span>{children}</label>
 );
 
-export const Check = ({ label, checked, onChange, right }) => (
-  <label className="check"><input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} /><span className="grow">{label}</span>{right && <span className="muted">{right}</span>}</label>
+export const Check = ({ label, checked, onChange, right, disabled }) => (
+  <label className="check" style={disabled ? { opacity: 0.5 } : undefined}><input type="checkbox" checked={!!checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} /><span className="grow">{label}</span>{right && <span className="muted">{right}</span>}</label>
 );
 
 export const Dot = ({ c }) => <span className={`dot ${c || ""}`} />;

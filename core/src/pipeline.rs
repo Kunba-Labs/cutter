@@ -55,6 +55,7 @@ fn run(lib: &Library, job: &Job) -> Result<Value, String> {
         "transcribe" => transcribe(lib, job),
         "detect" => detect(lib, job),
         "polish" => polish(lib, job),
+        "punchline" => punchline(lib, job),
         "render" => render(lib, job),
         "publish" => publish(lib, job),
         "check_channel" => check_channel(lib, job),
@@ -142,6 +143,39 @@ pub fn reel_style(s: &Settings, c: &Candidate) -> CaptionStyle {
         style.hook = h.hook;
     }
     style
+}
+
+/// What goes into a reel's file besides the cut: the teaser, the end card, the logo. "clean" gets
+/// none of it (nor captions or title): the bare cut for reuse elsewhere.
+pub struct Plan {
+    pub start: f64,
+    pub end: f64,
+    /// (start, end, transition) of the punchline teaser.
+    pub intro: Option<(f64, f64, String)>,
+    pub card: Option<(PathBuf, f64)>,
+    pub logo: Option<(PathBuf, f64, f64, f64, f64)>,
+}
+
+impl Plan {
+    pub fn seconds(&self) -> f64 {
+        ffmpeg::total_seconds(self.start, self.end, self.intro.as_ref().map(|(a, b, t)| (*a, *b, t.as_str())), self.card.as_ref().map(|c| c.1).unwrap_or(0.0))
+    }
+}
+
+pub fn plan(s: &Settings, c: &Candidate, src_duration: Option<f64>, format: &str) -> Plan {
+    let dur = src_duration.unwrap_or(f64::MAX);
+    let (start, end) = ((c.start - 0.25).max(0.0), (c.end + 0.35).min(dur));
+    let clean = format == "clean";
+    let (w, h, _) = ffmpeg::format_spec(format);
+    let intro = match (c.punch_start, c.punch_end) {
+        (Some(a), Some(b)) if !clean && c.intro_on.unwrap_or(s.intro) && b - a >= 0.8 => Some(((a - 0.1).max(0.0), (b + 0.15).min(dur), c.transition.clone().unwrap_or_else(|| s.transition.clone()))),
+        _ => None,
+    };
+    let card = (!clean && c.end_card_on.unwrap_or(s.end_card.enabled)).then(|| s.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(PathBuf::from)).flatten().filter(|p| p.exists()).map(|p| (p, s.end_card.seconds.clamp(0.5, 8.0)));
+    let l = &s.logo;
+    let logo_on = c.logo["on"].as_bool().unwrap_or(l.enabled);
+    let logo = (!clean && logo_on && !l.path.is_empty() && Path::new(&l.path).exists()).then(|| (PathBuf::from(&l.path), c.logo["x"].as_f64().unwrap_or(l.x), c.logo["y"].as_f64().unwrap_or(l.y), l.size, l.opacity));
+    Plan { start, end, intro, card, logo }
 }
 
 /// `{format}-cover.jpg` for a reel: the chosen frame (else one second in), the reel's crop,
@@ -383,7 +417,7 @@ fn detect(lib: &Library, job: &Job) -> Result<Value, String> {
         lib.put("candidates", &c.id, &format!("{}-{:08.2}", c.source_id, c.start), &c);
         n += 1;
         if c.approved {
-            for f in &s.formats {
+            for f in crate::reel_formats(&s, &c) {
                 lib.enqueue("render", &c.id, &format!("{} · {f}", c.title), json!({ "format": f }));
             }
         }
@@ -404,25 +438,36 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let dir = PathBuf::from(&src.folder).join(slug(&c.title));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let out = dir.join(format!("{format}.mp4"));
-    let lead = 0.25;
-    let (start, end) = ((c.start - lead).max(0.0), (c.end + 0.35).min(src.duration.unwrap_or(f64::MAX)));
+    let pl = plan(&s, &c, src.duration, &format);
+    let (start, end) = (pl.start, pl.end);
+    let clean = format == "clean";
     let style = reel_style(&s, &c);
-    let ass = dir.join(format!("{format}.ass"));
     // One caption language: the translation when one is chosen and this reel has it, else the spoken words.
     // The language decides font and size (RTL scripts), so it must match what is actually drawn.
     let use_translation = !s.translate_to.is_empty() && s.translate_to != t.language && c.translation.iter().any(|l| !l.text.trim().is_empty());
     let caption_language = if use_translation { s.translate_to.as_str() } else { t.language.as_str() };
     let no_caps = c.captions_on == Some(false);
     let hook_text = if c.title_on == Some(false) { "" } else { c.hook.as_str() };
-    std::fs::write(&ass, captions::build(&captions::CaptionSpec { segments: if no_caps { &[] } else { &t.segments }, translation: if no_caps { &[] } else { &c.translation }, clip_start: start, clip_end: end, width: w, height: h, extra_bottom: extra, style: &style, language: caption_language, hook: hook_text, watermark: &s.channel_name, use_translation, hook_bottom: false })).map_err(|e| e.to_string())?;
+    // The title shows in the first seconds of the file: over the teaser when there is one.
+    let write_ass = |name: &str, a: f64, b: f64, hook: &str| -> Result<PathBuf, String> {
+        let p = dir.join(name);
+        std::fs::write(&p, captions::build(&captions::CaptionSpec { segments: if no_caps { &[] } else { &t.segments }, translation: if no_caps { &[] } else { &c.translation }, clip_start: a, clip_end: b, width: w, height: h, extra_bottom: extra, style: &style, language: caption_language, hook, watermark: &s.channel_name, use_translation, hook_bottom: false })).map_err(|e| e.to_string())?;
+        Ok(p)
+    };
+    let ass = if clean { None } else { Some(write_ass(&format!("{format}.ass"), start, end, if pl.intro.is_some() { "" } else { hook_text })?) };
+    let intro_ass = match &pl.intro {
+        Some((a, b, _)) => Some(write_ass(&format!("{format}-intro.ass"), *a, *b, hook_text)?),
+        None => None,
+    };
     let mut r = Render { id: new_id("r"), candidate_id: c.id.clone(), source_id: src.id.clone(), format: format.clone(), path: out.display().to_string(), status: "rendering".into(), created_at: now(), ..Default::default() };
     lib.put("renders", &r.id, &r.created_at, &r);
     let jid = job.id.clone();
-    let card_path = s.end_card.enabled.then(|| s.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(PathBuf::from)).flatten().filter(|p| p.exists());
-    let end_card = card_path.as_deref().map(|p| (p, s.end_card.seconds.clamp(0.5, 8.0)));
+    let end_card = pl.card.as_ref().map(|(p, s)| (p.as_path(), *s));
     let has_audio = src.meta["hasAudio"].as_bool().unwrap_or_else(|| ffmpeg::probe(&video).map(|p| p.has_audio).unwrap_or(true));
+    let intro = pl.intro.as_ref().map(|(a, b, tr)| ffmpeg::Intro { start: *a, end: *b, ass: intro_ass.as_deref(), transition: tr });
+    let logo = pl.logo.as_ref().map(|(p, x, y, size, opacity)| ffmpeg::LogoSpec { path: p, x: *x, y: *y, size: *size, opacity: *opacity });
     let res = ffmpeg::render(
-        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: Some(&ass), end_card, has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
+        &ffmpeg::RenderSpec { src: &video, start, end, out: &out, width: w, height: h, src_w: sw, src_h: sh, crop_x: c.crop["x"].as_f64().unwrap_or(0.5), crop_y: c.crop["y"].as_f64().unwrap_or(0.5), crop_z: c.crop["z"].as_f64().unwrap_or(1.0), ass: ass.as_deref(), intro, logo, end_card, has_audio, fps: src.meta["fps"].as_f64().unwrap_or(30.0), quality: &s.render_quality },
         |p, m| lib.job_progress(&jid, p, m),
         |pid| lib.register_child(&jid, pid),
     );
@@ -430,29 +475,30 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
         Ok(()) => {
             let (cx, cy, cz) = (c.crop["x"].as_f64().unwrap_or(0.5), c.crop["y"].as_f64().unwrap_or(0.5), c.crop["z"].as_f64().unwrap_or(1.0));
             let mut c = c.clone();
-            if c.cover_t.is_none() {
+            if c.cover_t.is_none() && !clean {
                 let t = pick_cover(lib, job, &s, &c, &video, &dir.join(format!(".cover-{format}")), (sw, sh, w, h, cx, cy, cz));
                 // The pick may have written the cover line too.
                 c = lib.get::<Candidate>("candidates", &c.id).unwrap_or(c);
                 c.cover_t = Some(t);
             }
-            let cover = match make_cover(lib, &c, &format) {
+            // The clean cut has no cover of its own: it is raw material.
+            let cover = (!clean).then(|| match make_cover(lib, &c, &format) {
                 Ok(p) => p,
                 Err(e) => {
                     log::warn!("cover for {}: {e}", c.id);
                     dir.join(format!("{format}-cover.jpg"))
                 }
-            };
+            });
             let srt = dir.join("captions.srt");
             let _ = std::fs::write(&srt, captions::srt(&t.segments, start, end));
             let _ = std::fs::write(dir.join("caption.txt"), format!("{}\n\n{}\n{}", c.title, c.caption, c.hashtags.iter().map(|h| format!("#{h}")).collect::<Vec<_>>().join(" ")));
             r.status = "done".into();
-            r.cover_path = Some(cover.display().to_string()).filter(|_| cover.exists());
+            r.cover_path = cover.filter(|p| p.exists()).map(|p| p.display().to_string());
             r.srt_path = Some(srt.display().to_string());
             // Measure what came out; a shortfall is kept on the render, and in the job log.
             match ffmpeg::probe(&out) {
                 Ok(pr) => {
-                    let want = (end - start) + end_card.map(|(_, s)| s).unwrap_or(0.0);
+                    let want = pl.seconds();
                     let issues = ffmpeg::quality_issues(&pr, w, h, want, has_audio);
                     r.info = ffmpeg::info_json(&pr, &out);
                     r.info["issues"] = json!(issues);
@@ -772,4 +818,25 @@ fn polish(lib: &Library, job: &Job) -> Result<Value, String> {
         lib.enqueue("detect", &src.id, &src.title, json!({}));
     }
     Ok(json!({ "message": format!("{applied} fixes in {total_words} words") }))
+}
+
+/// The teaser line of one reel, asked of the brain.
+fn punchline(lib: &Library, job: &Job) -> Result<Value, String> {
+    let c: Candidate = lib.get("candidates", &job.ref_id).ok_or("candidate is gone")?;
+    let t: Transcript = lib.get("transcripts", &c.source_id).ok_or("no transcript")?;
+    let s = lib.settings();
+    let first = t.segments.iter().position(|g| g.end > c.start).ok_or("no lines in the reel")?;
+    let last = t.segments.iter().rposition(|g| g.start < c.end).unwrap_or(first).max(first);
+    lib.job_progress(&job.id, 0.1, &format!("{} is reading the reel", s.brain));
+    let text = brain::ask(&s, &brain::punch_prompt(&t.segments[first..=last], first, &t.language), Duration::from_secs(180), |pid| lib.register_child(&job.id, pid))?;
+    let v = brain::first_json(&text, '{').ok_or_else(|| format!("no JSON in: {}", text.chars().take(160).collect::<String>()))?;
+    let seg = v["punch_seg"].as_u64().map(|n| n as usize).filter(|n| (first..=last).contains(n)).ok_or("the punchline is not in the reel")?;
+    let quote = v["punchline"].as_str().unwrap_or("").trim().to_string();
+    let (a, b) = brain::punch_times(&t.segments, seg, &quote, c.start, c.end).ok_or("the punchline is too short")?;
+    let mut c = lib.get::<Candidate>("candidates", &c.id).ok_or("candidate is gone")?;
+    c.punch_start = Some(a);
+    c.punch_end = Some(b);
+    c.punchline = quote.clone();
+    lib.save_candidate(&mut c);
+    Ok(json!({ "message": quote }))
 }

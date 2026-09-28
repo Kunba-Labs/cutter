@@ -80,6 +80,7 @@ impl Library {
         });
         std::fs::create_dir_all(lib.out_dir()).map_err(|e| e.to_string())?;
         posters::qr_script(data_dir);
+        ffmpeg::install_fonts(&data_dir.join("fonts"));
         // A job that was running when the app quit goes back to the queue.
         for mut j in lib.all::<Job>("jobs") {
             if j.status == "running" {
@@ -116,6 +117,16 @@ impl Library {
 
     pub fn settings(&self) -> Settings {
         let mut st = self.db.lock().settings();
+        if st.templates_version < model::TEMPLATES_VERSION {
+            let have: Vec<String> = st.caption_templates.iter().map(|t| t.name.clone()).collect();
+            st.caption_templates.extend(model::caption_templates().into_iter().filter(|t| model::TEMPLATES_V2.contains(&t.name.as_str()) && !have.contains(&t.name)));
+            st.templates_version = model::TEMPLATES_VERSION;
+            let _ = self.db.lock().save_settings(&st);
+        }
+        // Libraries from before the target length kept a 40 s limit: the limit follows the target.
+        if st.max_reel_s < st.target_reel_s {
+            st.max_reel_s = st.target_reel_s * 3 / 2;
+        }
         // Templates saved before the title fields existed carry the plain defaults;
         // an untouched built-in takes its title look from the current definition.
         let plain = CaptionStyle::default();
@@ -472,8 +483,7 @@ impl Library {
                     let (w, h, _) = ffmpeg::format_spec(&r.format);
                     let src = self.get::<Source>("sources", &r.source_id);
                     let want_audio = src.as_ref().map(|s| s.meta["hasAudio"].as_bool().unwrap_or(true)).unwrap_or(true);
-                    let (start, end) = ((c.start - 0.25).max(0.0), (c.end + 0.35).min(src.as_ref().and_then(|s| s.duration).unwrap_or(f64::MAX)));
-                    let want = (end - start) + if st.end_card.enabled && st.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(|p| Path::new(p).exists()).unwrap_or(false) { st.end_card.seconds.clamp(0.5, 8.0) } else { 0.0 };
+                    let want = pipeline::plan(&st, &c, src.as_ref().and_then(|s| s.duration), &r.format).seconds();
                     match ffmpeg::probe(Path::new(&r.path)) {
                         Ok(pr) => {
                             let issues = ffmpeg::quality_issues(&pr, w, h, want, want_audio);
@@ -526,7 +536,7 @@ impl Library {
                     ids.extend(self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == sid).map(|c| c.id));
                 }
                 let mut n = 0;
-                for r in self.all::<Render>("renders").into_iter().filter(|r| r.status == "done" && ids.contains(&r.candidate_id)) {
+                for r in self.all::<Render>("renders").into_iter().filter(|r| r.status == "done" && r.format != "clean" && ids.contains(&r.candidate_id)) {
                     let Some(c) = self.get::<Candidate>("candidates", &r.candidate_id) else { continue };
                     match pipeline::make_cover(self, &c, &r.format) {
                         Ok(p) => {
@@ -679,6 +689,12 @@ impl Library {
                             "titleOn" => c.title_on = from.title_on,
                             "crop" => c.crop = from.crop.clone(),
                             "formats" => c.formats = from.formats.clone(),
+                            "intro" => {
+                                c.intro_on = from.intro_on;
+                                c.transition = from.transition.clone();
+                            }
+                            "logo" => c.logo = from.logo.clone(),
+                            "endCard" => c.end_card_on = from.end_card_on,
                             _ => {}
                         }
                     }
@@ -735,12 +751,45 @@ impl Library {
                 let mut jobs = Vec::new();
                 for cid in ids {
                     let Some(c) = self.get::<Candidate>("candidates", &cid) else { continue };
-                    let formats = formats_arg.clone().unwrap_or(if c.formats.is_empty() { st.formats.clone() } else { c.formats.clone() });
+                    let formats = formats_arg.clone().unwrap_or_else(|| reel_formats(&st, &c));
                     for f in formats {
                         jobs.push(self.enqueue("render", &cid, &format!("{} · {f}", c.title), json!({ "format": f })));
                     }
                 }
                 json!(jobs)
+            }
+            "punchline" => {
+                // The brain picks the teaser line of a reel that has none (or picks again).
+                let id = id()?;
+                let c: Candidate = self.get("candidates", &id).ok_or("no such reel")?;
+                json!(self.enqueue("punchline", &id, &format!("{} · punchline", c.title), json!({})))
+            }
+            "choose_file" => {
+                // The macOS open panel; null when cancelled. kind "image" limits it to pictures.
+                let kind = if s("kind").as_deref() == Some("image") { " of type {\"public.image\"}" } else { "" };
+                let prompt = s("prompt").unwrap_or_else(|| "Choose a file".into()).replace('"', "'");
+                let out = std::process::Command::new("osascript").args(["-e", &format!("POSIX path of (choose file with prompt \"{prompt}\"{kind})")]).output().map_err(|e| e.to_string())?;
+                let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if p.is_empty() { Value::Null } else { json!(p) }
+            }
+            "end_card_image" => {
+                // Any picture as the end card: padded on its own blur into the three shapes.
+                let path = s("path").ok_or("path required")?;
+                let dir = self.data_dir.join("endcards");
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let stamp = chrono::Utc::now().timestamp();
+                let mut paths = json!({});
+                for (key, w, h) in [("9x16", 1080, 1920), ("4x5", 1080, 1350), ("16x9", 1920, 1080)] {
+                    let dst = dir.join(format!("endcard-{key}-{stamp}.png"));
+                    ffmpeg::poster_pad(Path::new(&path), &dst, w, h)?;
+                    paths[key] = json!(dst);
+                }
+                let mut st = self.settings();
+                st.end_card.paths = paths;
+                st.end_card.poster_id = None;
+                st.end_card.enabled = true;
+                self.save_settings(&st);
+                json!(st.end_card)
             }
             "jobs" => json!(self.all::<Job>("jobs")),
             "cancel_job" => {
@@ -1164,6 +1213,15 @@ impl Library {
     }
 }
 
+/// The files a reel renders to: its own formats (else the library's) and always the clean cut.
+pub fn reel_formats(st: &Settings, c: &Candidate) -> Vec<String> {
+    let mut f = if c.formats.is_empty() { st.formats.clone() } else { c.formats.clone() };
+    if !f.iter().any(|x| x == "clean") {
+        f.push("clean".into());
+    }
+    f
+}
+
 /// The render format a channel takes by default.
 pub fn default_format(channel: &str) -> &'static str {
     match channel {
@@ -1202,13 +1260,14 @@ mod tests {
         let jobs = lib.all::<Job>("jobs");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].kind, "download");
-        let c = lib.dispatch("add_candidate", json!({ "sourceId": id, "start": 10.0, "end": 100.0, "title": "x" })).unwrap();
-        assert_eq!(c["end"].as_f64().unwrap(), 50.0);
+        let c = lib.dispatch("add_candidate", json!({ "sourceId": id, "start": 10.0, "end": 200.0, "title": "x" })).unwrap();
+        assert_eq!(c["end"].as_f64().unwrap(), 100.0);
         let cid = c["id"].as_str().unwrap();
-        assert!(lib.dispatch("update_candidate", json!({ "id": cid, "patch": { "end": 80.0 } })).is_err());
+        assert!(lib.dispatch("update_candidate", json!({ "id": cid, "patch": { "end": 120.0 } })).is_err());
         lib.dispatch("approve", json!({ "ids": [cid] })).unwrap();
+        // Shorts, Reels, TikTok and always the clean cut.
         let jobs = lib.dispatch("render", json!({ "sourceId": id })).unwrap();
-        assert_eq!(jobs.as_array().unwrap().len(), 3);
+        assert_eq!(jobs.as_array().unwrap().len(), 4);
         let snap = lib.snapshot();
         assert_eq!(snap["candidates"].as_array().unwrap().len(), 1);
         assert_eq!(snap["sources"][0]["langOverride"], "nl");

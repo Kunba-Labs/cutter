@@ -7,6 +7,38 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
+/// Caption fonts that ship with the app (SIL OFL), shared with the webview's @font-face in app.css.
+const FONTS: &[(&str, &[u8])] = &[
+    ("Montserrat-ExtraBold.ttf", include_bytes!("../../desktop/src/fonts/Montserrat-ExtraBold.ttf")),
+    ("Poppins-ExtraBold.ttf", include_bytes!("../../desktop/src/fonts/Poppins-ExtraBold.ttf")),
+    ("Anton-Regular.ttf", include_bytes!("../../desktop/src/fonts/Anton-Regular.ttf")),
+    ("BebasNeue-Regular.ttf", include_bytes!("../../desktop/src/fonts/BebasNeue-Regular.ttf")),
+    ("ArchivoBlack-Regular.ttf", include_bytes!("../../desktop/src/fonts/ArchivoBlack-Regular.ttf")),
+    ("LilitaOne-Regular.ttf", include_bytes!("../../desktop/src/fonts/LilitaOne-Regular.ttf")),
+];
+
+static FONTS_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Writes the bundled fonts where libass finds them (every `ass=` filter passes `fontsdir`).
+pub fn install_fonts(dir: &Path) {
+    let _ = std::fs::create_dir_all(dir);
+    for (name, bytes) in FONTS {
+        let p = dir.join(name);
+        if std::fs::metadata(&p).map(|m| m.len() != bytes.len() as u64).unwrap_or(true) {
+            let _ = std::fs::write(&p, bytes);
+        }
+    }
+    let _ = FONTS_DIR.set(dir.to_path_buf());
+}
+
+/// The libass filter for an .ass file, with the bundled fonts.
+pub fn ass_filter(p: &Path) -> String {
+    match FONTS_DIR.get() {
+        Some(d) => format!("ass='{}':fontsdir='{}'", ass_path_arg(p), ass_path_arg(d)),
+        None => format!("ass='{}'", ass_path_arg(p)),
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Probe {
     pub duration: f64,
@@ -116,6 +148,9 @@ pub struct RenderSpec<'a> {
     pub crop_y: f64,
     pub crop_z: f64,
     pub ass: Option<&'a Path>,
+    /// The punchline played first, then the transition into the cut.
+    pub intro: Option<Intro<'a>>,
+    pub logo: Option<LogoSpec<'a>>,
     /// A still appended after the cut, for this many seconds, with a short fade.
     pub end_card: Option<(&'a Path, f64)>,
     /// The source has an audio stream (a screen recording may not).
@@ -124,6 +159,46 @@ pub struct RenderSpec<'a> {
     pub fps: f64,
     /// "best" (x264 slow, crf 16) | "good" (x264 medium, crf 18) | "fast" (VideoToolbox 12 Mbps)
     pub quality: &'a str,
+}
+
+pub struct Intro<'a> {
+    pub start: f64,
+    pub end: f64,
+    pub ass: Option<&'a Path>,
+    pub transition: &'a str,
+}
+
+pub struct LogoSpec<'a> {
+    pub path: &'a Path,
+    /// Place within the free space: 0 = left/top edge, 1 = right/bottom edge.
+    pub x: f64,
+    pub y: f64,
+    /// Width as a fraction of the frame width.
+    pub size: f64,
+    pub opacity: f64,
+}
+
+/// The teaser→reel transitions: (xfade name or None for a hard cut, seconds, whoosh sound).
+pub const TRANSITIONS: &[(&str, Option<&str>, f64, bool)] = &[
+    ("swoosh", Some("smoothleft"), 0.35, true),
+    ("zoom", Some("zoomin"), 0.4, true),
+    ("slide", Some("slideup"), 0.3, true),
+    ("blur", Some("hblur"), 0.4, true),
+    ("flash", Some("fadewhite"), 0.3, false),
+    ("fade", Some("fade"), 0.4, false),
+    ("cut", None, 0.0, false),
+];
+
+pub fn transition(name: &str) -> (Option<&'static str>, f64, bool) {
+    let t = TRANSITIONS.iter().find(|t| t.0 == name).unwrap_or(&TRANSITIONS[0]);
+    (t.1, t.2, t.3)
+}
+
+/// Length of the finished file: teaser + cut − the overlap of the transition + end card.
+pub fn total_seconds(start: f64, end: f64, intro: Option<(f64, f64, &str)>, card: f64) -> f64 {
+    let main = end - start;
+    let lead = intro.map(|(a, b, t)| (b - a) - transition(t).1).unwrap_or(0.0);
+    main + lead + card
 }
 
 /// Encoder arguments for a quality setting.
@@ -192,48 +267,81 @@ pub fn proxy(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64,
     run_with_progress(&mut cmd, duration.max(0.1), out, on_progress)
 }
 
-/// H.264 at the chosen quality, AAC 192k, loudness −14 LUFS. Progress from
-/// `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
+/// H.264 at the chosen quality, AAC 192k, loudness −14 LUFS. One filter graph: the teaser and the
+/// cut (each with its own captions), the transition with a whoosh, the logo over both, then the end
+/// card. Progress from `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
 pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<(), String> {
     let dur = (r.end - r.start).max(0.1);
-    let mut vf = vec![crop_filter_z(r.src_w, r.src_h, r.width, r.height, r.crop_x, r.crop_y, r.crop_z), format!("scale={}:{}:flags=lanczos", r.width, r.height)];
-    if let Some(a) = r.ass {
-        // libass wants the path escaped for the filter graph: ':' and '\' and quotes.
-        vf.push(format!("ass='{}'", ass_path_arg(a)));
-    }
-    let vf = vf.join(",");
-    let total = dur + r.end_card.map(|(_, s)| s).unwrap_or(0.0);
     let fps = if r.fps > 1.0 { r.fps.min(60.0) } else { 30.0 };
     let fps_s = format!("{fps:.3}");
+    let (w, h) = (r.width, r.height);
+    let base = format!("{},scale={w}:{h}:flags=lanczos,setsar=1,fps={fps_s},format=yuv420p,settb=AVTB", crop_filter_z(r.src_w, r.src_h, w, h, r.crop_x, r.crop_y, r.crop_z));
+    let with_ass = |a: Option<&Path>| match a { Some(a) => format!("{base},{}", ass_filter(a)), None => base.clone() };
+    let pcm = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo";
+    let (tx, tx_d, whoosh) = r.intro.as_ref().map(|i| transition(i.transition)).unwrap_or((None, 0.0, false));
+    let card_s = r.end_card.map(|(_, s)| s).unwrap_or(0.0);
+    let total = total_seconds(r.start, r.end, r.intro.as_ref().map(|i| (i.start, i.end, i.transition)), card_s);
     let mut run = |encoder: &[&str]| -> Result<(), String> {
         let mut cmd = Command::new(crate::tools::ffmpeg_bin());
-        cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error", "-ss", &format!("{:.3}", r.start), "-to", &format!("{:.3}", r.end)]).arg("-i").arg(r.src);
-        match r.end_card {
-            Some((card, secs)) => {
-                // The cut, then the card as a second clip (silent audio), joined with a fade.
-                cmd.args(["-loop", "1", "-framerate", &fps_s, "-t", &format!("{secs:.2}")]).arg("-i").arg(card);
-                cmd.args(["-f", "lavfi", "-t", &format!("{secs:.2}"), "-i", "anullsrc=r=48000:cl=stereo"]);
-                // A silent source stands in for a video that has no audio stream.
-                let a0 = if r.has_audio {
-                    "[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a0]".to_string()
-                } else {
-                    cmd.args(["-f", "lavfi", "-t", &format!("{dur:.3}"), "-i", "anullsrc=r=48000:cl=stereo"]);
-                    "[3:a]anull[a0]".to_string()
-                };
-                let fc = format!(
-                    "[0:v]{vf},setsar=1,fps={fps_s},format=yuv420p[v0];{a0};[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={fps_s},format=yuv420p,fade=t=in:st=0:d=0.35[v1];[v0][a0][v1][2:a]concat=n=2:v=1:a=1[v][a]",
-                    w = r.width,
-                    h = r.height
-                );
-                cmd.args(["-filter_complex", &fc, "-map", "[v]", "-map", "[a]"]);
-            }
-            None => {
-                cmd.args(["-vf", &vf]);
-                if r.has_audio {
-                    cmd.args(["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]);
+        cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]);
+        let mut n = 0usize;
+        let mut input = |cmd: &mut Command, args: Vec<String>| -> usize {
+            cmd.args(args);
+            n += 1;
+            n - 1
+        };
+        let src = r.src.display().to_string();
+        let silent = |secs: f64| vec!["-f".into(), "lavfi".into(), "-t".into(), format!("{secs:.3}"), "-i".into(), "anullsrc=r=48000:cl=stereo".into()];
+        let mut fc: Vec<String> = Vec::new();
+        // The cut, and its sound (a silent track stands in when the source has none).
+        let m = input(&mut cmd, vec!["-ss".into(), format!("{:.3}", r.start), "-to".into(), format!("{:.3}", r.end), "-i".into(), src.clone()]);
+        fc.push(format!("[{m}:v]{}[mv]", with_ass(r.ass)));
+        let ma = if r.has_audio { m } else { input(&mut cmd, silent(dur)) };
+        fc.push(format!("[{ma}:a]{pcm}[ma]"));
+        let (mut v, mut a) = ("mv".to_string(), "ma".to_string());
+        if let Some(i) = &r.intro {
+            let p = (i.end - i.start).max(0.5);
+            let k = input(&mut cmd, vec!["-ss".into(), format!("{:.3}", i.start), "-to".into(), format!("{:.3}", i.end), "-i".into(), src.clone()]);
+            fc.push(format!("[{k}:v]{}[iv]", with_ass(i.ass)));
+            let ka = if r.has_audio { k } else { input(&mut cmd, silent(p)) };
+            fc.push(format!("[{ka}:a]{pcm}[ia]"));
+            match tx {
+                Some(name) => {
+                    fc.push(format!("[iv][mv]xfade=transition={name}:duration={tx_d}:offset={:.3}[jv]", p - tx_d));
+                    fc.push(format!("[ia][ma]acrossfade=d={tx_d}[ja]"));
                 }
+                None => fc.push("[iv][ia][mv][ma]concat=n=2:v=1:a=1[jv][ja]".into()),
+            }
+            (v, a) = ("jv".into(), "ja".into());
+            if whoosh {
+                // Pink noise swelling and dying over the transition: the swoosh.
+                let ws = 0.5;
+                let wk = input(&mut cmd, vec!["-f".into(), "lavfi".into(), "-t".into(), format!("{ws}"), "-i".into(), "anoisesrc=r=48000:c=pink:a=0.35".into()]);
+                let at = ((p - tx_d / 2.0 - ws / 2.0).max(0.0) * 1000.0) as i64;
+                fc.push(format!("[{wk}:a]highpass=f=300,lowpass=f=6000,afade=t=in:d={:.2},afade=t=out:st={:.2}:d={:.2},{pcm},adelay={at}:all=1[wh]", ws * 0.6, ws * 0.6, ws * 0.4));
+                fc.push(format!("[{a}][wh]amix=inputs=2:duration=first:normalize=0[jw]"));
+                a = "jw".into();
             }
         }
+        if let Some(l) = &r.logo {
+            let lk = input(&mut cmd, vec!["-i".into(), l.path.display().to_string()]);
+            let lw = (((w as f64 * l.size.clamp(0.03, 0.8)) / 2.0).round() as i64 * 2).max(2);
+            fc.push(format!("[{lk}:v]scale={lw}:-2,format=rgba,colorchannelmixer=aa={:.2}[lg]", l.opacity.clamp(0.05, 1.0)));
+            fc.push(format!("[{v}][lg]overlay=x='(W-w)*{:.4}':y='(H-h)*{:.4}',format=yuv420p[lv]", l.x.clamp(0.0, 1.0), l.y.clamp(0.0, 1.0)));
+            v = "lv".into();
+        }
+        if r.has_audio {
+            fc.push(format!("[{a}]loudnorm=I=-14:TP=-1.5:LRA=11,{pcm}[na]"));
+            a = "na".into();
+        }
+        if let Some((card, secs)) = r.end_card {
+            let ck = input(&mut cmd, vec!["-loop".into(), "1".into(), "-framerate".into(), fps_s.clone(), "-t".into(), format!("{secs:.2}"), "-i".into(), card.display().to_string()]);
+            let ca = input(&mut cmd, silent(secs));
+            fc.push(format!("[{ck}:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={fps_s},format=yuv420p,settb=AVTB,fade=t=in:st=0:d=0.35[cv]"));
+            fc.push(format!("[{v}][{a}][cv][{ca}:a]concat=n=2:v=1:a=1[fv][fa]"));
+            (v, a) = ("fv".into(), "fa".into());
+        }
+        cmd.args(["-filter_complex", &fc.join(";"), "-map", &format!("[{v}]"), "-map", &format!("[{a}]")]);
         cmd.args(encoder).args(["-pix_fmt", "yuv420p", "-r", &fps_s, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(r.out);
         run_with_progress(&mut cmd, total, r.out, &mut on_progress)
     };
@@ -254,7 +362,8 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
 pub fn cover(src: &Path, t: f64, out: &Path, src_w: i64, src_h: i64, width: i64, height: i64, cx: f64, cy: f64, z: f64, ass: Option<&Path>) -> Result<(), String> {
     let mut vf = format!("{},scale={}:{}:flags=lanczos,unsharp=5:5:0.6:5:5:0.0", crop_filter_z(src_w, src_h, width, height, cx, cy, z), width, height);
     if let Some(a) = ass {
-        vf.push_str(&format!(",ass='{}'", ass_path_arg(a)));
+        vf.push(',');
+        vf.push_str(&ass_filter(a));
     }
     crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error", "-ss", &format!("{t:.3}")]).arg("-i").arg(src).args(["-frames:v", "1", "-vf", &vf, "-q:v", "2"]).arg(out)).map(|_| ())
 }
@@ -428,10 +537,10 @@ pub fn waiting_video(w: &WaitingSpec) -> Result<(), String> {
     let ass = w.out.with_extension("ass");
     std::fs::write(&ass, waiting_ass(w, landscape)).map_err(|e| e.to_string())?;
     let filter = format!(
-        "[1:v]scale=-2:{poster_h}[fg];[0:v][fg]overlay={}:'{}+6*sin(2*PI*t/12)':shortest=1,ass='{}'",
+        "[1:v]scale=-2:{poster_h}[fg];[0:v][fg]overlay={}:'{}+6*sin(2*PI*t/12)':shortest=1,{}",
         if landscape { "80".to_string() } else { "(W-w)/2".to_string() },
         if landscape { 60 } else { 40 },
-        ass_path_arg(&ass)
+        ass_filter(&ass)
     );
     let r = crate::tools::run(
         Command::new(crate::tools::ffmpeg_bin())
@@ -457,10 +566,10 @@ pub fn still(poster: &Path, out: &Path, width: i64, height: i64, text: &str, fon
     std::fs::write(&ass, waiting_ass(&spec, landscape)).map_err(|e| e.to_string())?;
     let poster_h = if landscape { height - 120 } else { (height as f64 * 0.62) as i64 };
     let filter = format!(
-        "[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},boxblur=30:5,eq=brightness=-0.25[bg];[0:v]scale=-2:{poster_h}[fg];[bg][fg]overlay={}:{},ass='{}'",
+        "[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},boxblur=30:5,eq=brightness=-0.25[bg];[0:v]scale=-2:{poster_h}[fg];[bg][fg]overlay={}:{},{}",
         if landscape { "80".to_string() } else { "(W-w)/2".to_string() },
         if landscape { 60 } else { 40 },
-        ass_path_arg(&ass)
+        ass_filter(&ass)
     );
     let r = crate::tools::run(Command::new(crate::tools::ffmpeg_bin()).args(["-y", "-hide_banner", "-loglevel", "error"]).arg("-i").arg(poster).args(["-filter_complex", &filter, "-frames:v", "1"]).arg(out)).map(|_| ());
     let _ = std::fs::remove_file(&ass);
@@ -477,6 +586,30 @@ pub fn poster_pad(poster: &Path, out: &Path, width: i64, height: i64) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Teaser + swoosh + cut + logo + end card through real ffmpeg: the file is as long as planned.
+    #[test]
+    fn teaser_render() {
+        let d = tempfile::tempdir().unwrap();
+        let ff = crate::tools::ffmpeg_bin();
+        let src = d.path().join("src.mp4");
+        let logo = d.path().join("logo.png");
+        let card = d.path().join("card.png");
+        let ok = |args: &[&str]| Command::new(&ff).args(["-y", "-loglevel", "error"]).args(args).status().map(|s| s.success()).unwrap_or(false);
+        if !ok(&["-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=12", "-f", "lavfi", "-i", "sine=f=440:d=12", "-c:v", "libx264", "-c:a", "aac", "-shortest", src.to_str().unwrap()]) {
+            return; // no ffmpeg here
+        }
+        assert!(ok(&["-f", "lavfi", "-i", "color=red@0.5:s=200x80,format=rgba", "-frames:v", "1", logo.to_str().unwrap()]));
+        assert!(ok(&["-f", "lavfi", "-i", "color=blue:s=1080x1920", "-frames:v", "1", card.to_str().unwrap()]));
+        let out = d.path().join("out.mp4");
+        let spec = RenderSpec { src: &src, start: 2.0, end: 6.0, out: &out, width: 1080, height: 1920, src_w: 640, src_h: 360, crop_x: 0.5, crop_y: 0.5, crop_z: 1.0, ass: None, intro: Some(Intro { start: 8.0, end: 10.0, ass: None, transition: "swoosh" }), logo: Some(LogoSpec { path: &logo, x: 1.0, y: 0.0, size: 0.2, opacity: 0.8 }), end_card: Some((&card, 1.0)), has_audio: true, fps: 30.0, quality: "fast" };
+        render(&spec, |_, _| {}, |_| {}).unwrap();
+        let p = probe(&out).unwrap();
+        let want = total_seconds(2.0, 6.0, Some((8.0, 10.0, "swoosh")), 1.0);
+        assert!((p.duration - want).abs() < 0.3, "{} vs {want}", p.duration);
+        assert!(p.has_audio && p.width == 1080);
+    }
+
     #[test]
     fn crops() {
         assert_eq!(crop_filter(1920, 1080, 1080, 1920, 0.5, 0.5), "crop=608:1080:656:0");

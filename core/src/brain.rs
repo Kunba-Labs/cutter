@@ -21,6 +21,9 @@ pub struct Draft {
     pub hashtags: Vec<String>,
     pub why: String,
     pub translation: Vec<String>,
+    /// The line holding the punchline, and its words as spoken.
+    pub punch_seg: Option<usize>,
+    pub punchline: String,
 }
 
 pub const CATEGORIES: &[&str] = &["fact", "statement", "hook", "story", "dua", "reminder", "qa"];
@@ -37,9 +40,13 @@ pub fn prompt(segments: &[Segment], offset: usize, title: &str, language: &str, 
 
 The transcript is numbered lines: "#index [start–end] text". Find the moments that stand alone as a reel: a complete thought that needs no context before it and does not stop mid-sentence. Prefer facts, clear statements, catchy openers, short stories, du'as, reminders, and good question-and-answer exchanges. Skip housekeeping, greetings, announcements, and anything that only makes sense with the lesson around it.
 
-Hard rules:
-- A reel is at most {max} seconds long, measured from the start of its first line to the end of its last line. Longer is not allowed; pick a shorter span instead.
+Length: aim for about {target} seconds, measured from the start of its first line to the end of its last line. The length follows the thought, not the target:
+- The reel must contain its whole point: the setup the viewer needs AND the line where the point lands. Never stop before the point is made, never start after the setup began.
+- When the thought is complete sooner, end there. Do not add lines that belong to the next topic, a digression, a repetition or housekeeping just to get closer to {target} seconds.
+- Longer than {target} seconds only when the thought needs it, never beyond {max} seconds. A thought that cannot be told within {max} seconds is left out, not cut short.
 - A reel is at least 8 seconds.
+
+Hard rules:
 - Start on the first line of a sentence and end on the line where that sentence or thought closes.
 - Reels must not overlap.
 - Return between 4 and 12 reels, the best ones, scored honestly.
@@ -47,18 +54,22 @@ Hard rules:
 Return ONLY a JSON array, no prose, each item:
 - "start_seg": index of the first line
 - "end_seg": index of the last line (inclusive)
+- "point": the point of the reel in one short English sentence (check it is fully inside start_seg..end_seg)
 - "category": one of fact, statement, hook, story, dua, reminder, qa
 - "score": 1–10, how strong this is as a standalone reel
 - "title": short title in the spoken language (max 60 chars)
 - "hook": 2–5 words shown on screen in the first seconds, in the spoken language
 - "caption": 1–2 sentence caption for the post in the spoken language, ending with the source ("— {title}")
 - "hashtags": 4–6 hashtags without the # sign
-- "why": one line, in English, on why this works alone{translate}
+- "why": one line, in English, on why this works alone
+- "punch_seg": index of the line inside the reel with the punchline: the most striking words, the ones that make a scrolling viewer stop and want the rest
+- "punchline": those exact words as they appear in that line, 3 to 15 words, copied verbatim (they are played first as a teaser){translate}
 
 Transcript:
 {lines}"##,
         lang = lang_name(language),
-        max = s.max_reel_s,
+        target = s.target_reel_s,
+        max = s.max_reel_s.max(s.target_reel_s),
         lines = lines.join("\n"),
     )
 }
@@ -228,28 +239,30 @@ pub fn parse_drafts(text: &str) -> Result<Vec<Draft>, String> {
                 hashtags: strs(&c["hashtags"]),
                 why: c["why"].as_str().unwrap_or("").to_string(),
                 translation: strs(&c["translation"]),
+                punch_seg: c["punch_seg"].as_u64().map(|n| n as usize),
+                punchline: c["punchline"].as_str().unwrap_or("").trim().to_string(),
             })
         })
         .collect())
 }
 
-/// Drafts → candidates with real times, clamped to the max length at a
-/// segment boundary, overlaps resolved by score.
+/// Drafts → candidates with real times, overlaps resolved by score. A draft longer than the
+/// max is dropped, not cut: a clamped reel loses the line where its point lands.
 pub fn to_candidates(drafts: Vec<Draft>, segments: &[Segment], source_id: &str, max_s: f64) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = Vec::new();
     for d in drafts {
         if d.start_seg >= segments.len() || d.end_seg < d.start_seg {
             continue;
         }
-        let mut end_seg = d.end_seg.min(segments.len() - 1);
+        let end_seg = d.end_seg.min(segments.len() - 1);
         let start = segments[d.start_seg].start;
-        while end_seg > d.start_seg && segments[end_seg].end - start > max_s {
-            end_seg -= 1;
-        }
-        let end = segments[end_seg].end.min(start + max_s);
-        if end - start < 5.0 {
+        let end = segments[end_seg].end;
+        // A second of slack: whisper line ends drift a little past the words.
+        if end - start < 5.0 || end - start > max_s + 1.0 {
             continue;
         }
+        let end = end.min(start + max_s);
+        let punch = d.punch_seg.filter(|p| (d.start_seg..=end_seg).contains(p)).and_then(|p| punch_times(segments, p, &d.punchline, start, end));
         let translation = segments[d.start_seg..=end_seg]
             .iter()
             .zip(d.translation.iter())
@@ -268,6 +281,9 @@ pub fn to_candidates(drafts: Vec<Draft>, segments: &[Segment], source_id: &str, 
             hashtags: d.hashtags,
             why: d.why,
             translation,
+            punch_start: punch.map(|p| p.0),
+            punch_end: punch.map(|p| p.1),
+            punchline: if punch.is_some() { d.punchline } else { String::new() },
             crop: serde_json::json!({ "x": 0.5 }),
             ..Default::default()
         });
@@ -289,6 +305,51 @@ pub fn to_candidates(drafts: Vec<Draft>, segments: &[Segment], source_id: &str, 
         c.updated_at = t;
     }
     kept
+}
+
+/// Source times of a quoted punchline: its words found in line `seg` (or the two after, a quote may
+/// run on), else the whole line. Kept inside the reel, 1.2 to 8 seconds long.
+pub fn punch_times(segments: &[Segment], seg: usize, quote: &str, lo: f64, hi: f64) -> Option<(f64, f64)> {
+    let g = segments.get(seg)?;
+    let words: Vec<(String, f64, f64)> = segments[seg..(seg + 3).min(segments.len())]
+        .iter()
+        .flat_map(|g| {
+            if g.words.is_empty() {
+                let ws: Vec<&str> = g.text.split_whitespace().collect();
+                let n = ws.len().max(1) as f64;
+                ws.iter().enumerate().map(|(i, w)| (strip_punct(w), g.start + (g.end - g.start) * i as f64 / n, g.start + (g.end - g.start) * (i as f64 + 1.0) / n)).collect::<Vec<_>>()
+            } else {
+                g.words.iter().map(|w| (strip_punct(&w.w), w.s, w.e)).collect()
+            }
+        })
+        .filter(|w| !w.0.is_empty())
+        .collect();
+    let q: Vec<String> = quote.split_whitespace().map(strip_punct).filter(|w| !w.is_empty()).collect();
+    // The quote's first word, then its last word within a few words of where it should be.
+    let found = (!q.is_empty()).then(|| {
+        words.iter().enumerate().filter(|(_, w)| w.0 == q[0]).find_map(|(i, _)| {
+            let want = i + q.len() - 1;
+            (want.saturating_sub(2)..=(want + 2).min(words.len().saturating_sub(1))).find(|&j| j >= i && words[j].0 == q[q.len() - 1]).map(|j| (words[i].1, words[j].2))
+        })
+    });
+    let (a, b) = found.flatten().unwrap_or((g.start, g.end));
+    let (a, b) = (a.max(lo), b.min(hi).min(a + 8.0));
+    (b - a >= 1.2).then_some((a, b))
+}
+
+/// Asks for the punchline of one reel that has none (handpicked, or found before punchlines existed).
+pub fn punch_prompt(segments: &[Segment], offset: usize, language: &str) -> String {
+    let lines: Vec<String> = segments.iter().enumerate().map(|(i, g)| format!("#{} {}", i + offset, g.text.trim())).collect();
+    format!(
+        r##"These numbered lines are one short reel cut from an Islamic lecture in {lang}. Pick its punchline: the most striking 3 to 15 words, the ones that make a scrolling viewer stop and want the rest. They are played first as a teaser, before the reel.
+
+Answer with JSON only: {{"punch_seg": <line index>, "punchline": "<those exact words, copied verbatim from that line>"}}
+
+Lines:
+{lines}"##,
+        lang = lang_name(language),
+        lines = lines.join("\n"),
+    )
 }
 
 /// A transcript longer than ~80k characters goes in overlapping chunks.
@@ -337,18 +398,26 @@ mod tests {
     }
     #[test]
     fn drafts_become_candidates() {
-        let text = "Here you go:\n[{\"start_seg\":1,\"end_seg\":6,\"category\":\"story\",\"score\":9,\"title\":\"t\",\"hook\":\"h\",\"caption\":\"c\",\"hashtags\":[\"#sabr\",\"tafsir\"],\"why\":\"w\",\"translation\":[\"a\",\"b\"]},{\"start_seg\":2,\"end_seg\":3,\"category\":\"zzz\",\"score\":4}]";
+        let text = "Here you go:\n[{\"start_seg\":1,\"end_seg\":4,\"punch_seg\":2,\"punchline\":\"line 2\",\"category\":\"story\",\"score\":9,\"title\":\"t\",\"hook\":\"h\",\"caption\":\"c\",\"hashtags\":[\"#sabr\",\"tafsir\"],\"why\":\"w\",\"translation\":[\"a\",\"b\"]},{\"start_seg\":2,\"end_seg\":3,\"category\":\"zzz\",\"score\":4}]";
         let d = parse_drafts(text).unwrap();
         assert_eq!(d.len(), 2);
         assert_eq!(d[0].hashtags, vec!["sabr", "tafsir"]);
         assert_eq!(d[1].category, "statement");
         let c = to_candidates(d, &segs(), "s", 40.0);
-        // 1..6 spans 59 s → clamped to segments 1..4 (end 49) = 39 s; the overlapping weaker one is dropped.
+        // 1..4 spans 39 s and fits; the overlapping weaker one is dropped.
         assert_eq!(c.len(), 1);
-        assert_eq!(c[0].start, 10.0);
-        assert!(c[0].end <= 50.0);
+        assert_eq!((c[0].start, c[0].end), (10.0, 49.0));
         assert_eq!(c[0].translation.len(), 2);
+        // The quote "line 2" is the whole of line 2 (20–29 s), capped at 8 s.
+        assert_eq!((c[0].punch_start, c[0].punch_end), (Some(20.0), Some(28.0)));
         assert_eq!(chunks(&segs()), vec![(0, 10)]);
+        // Longer than the max: left out, not cut short.
+        let long = parse_drafts("[{\"start_seg\":1,\"end_seg\":6,\"score\":9}]").unwrap();
+        assert!(to_candidates(long, &segs(), "s", 40.0).is_empty());
+        // Word-timed quote inside a line.
+        let g = vec![Segment { start: 0.0, end: 4.0, text: "Sabr is niet wachten, het is vertrouwen.".into(), words: ["Sabr", "is", "niet", "wachten,", "het", "is", "vertrouwen."].iter().enumerate().map(|(i, w)| crate::model::Word { w: w.to_string(), s: i as f64 * 0.5, e: i as f64 * 0.5 + 0.4 }).collect() }];
+        assert_eq!(punch_times(&g, 0, "het is vertrouwen", 0.0, 4.0), Some((2.0, 3.4)));
+        assert_eq!(punch_times(&g, 0, "niet in de tekst", 0.0, 4.0), Some((0.0, 4.0)));
     }
 }
 

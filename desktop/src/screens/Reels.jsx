@@ -59,7 +59,7 @@ export default function Reels({ nav, go }) {
   const speed = useSpeed();
   useEffect(() => { if (video.current) video.current.playbackRate = speed; }, [speed]);
 
-  useEffect(() => { if (sourceId) act("source", { id: sourceId }).then(setDetail).catch(() => setDetail(null)); }, [sourceId, x?.updatedAt]);
+  useEffect(() => { if (sourceId) act("source", { id: sourceId }).then(setDetail).catch(() => setDetail(null)); }, [sourceId, x?.updatedAt, s.undoneAt]);
   // Another reel: start at its in point, out of any teaser the last one was paused in.
   useEffect(() => { teaser.current = false; setTeasing(false); if (c && video.current) { video.current.currentTime = c.start; } }, [c?.id]);
   // The start of the whole thing: the teaser when this reel has one switched on, else the reel.

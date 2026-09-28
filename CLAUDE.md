@@ -105,6 +105,10 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   A folder target copies file + cover + caption into a drop folder at post time; Instagram/TikTok/
   Facebook are "by hand" until an approved developer app exists. Watched channels (`channels`)
   are the ingest side and unrelated. `settings.cadence` is legacy, unused.
+- **Undo is global and in the core.** `Library::dispatch` journals the first state of every row an
+  action writes (thread-local, so worker writes never count; `jobs`/`renders` never), `undo` puts the
+  last action's rows back. ⌘Z outside a text field (App.jsx). Only rows: files, queued jobs and posts
+  stay done. In memory, 100 steps, lost on restart. No redo.
 - **Design language**: panels on #1A1D2A with 26 px header strips, magenta #F52ACB the only
   action colour (primary buttons, active tab). Tiffany #0ABAB5 for selection state: segmented
   controls, checks, slider thumbs, links, inspector group heads. Mint = done, the trim timeline

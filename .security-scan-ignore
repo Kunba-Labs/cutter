@@ -1,1 +1,2 @@
 # path-prefix  # reason — accepted findings, shown under "Accepted by design" in the report
+core/src/model.rs  # YOUTUBE_CLIENT_ID is a public OAuth client identifier (shown on every consent screen); the secret lives in .deploy.env

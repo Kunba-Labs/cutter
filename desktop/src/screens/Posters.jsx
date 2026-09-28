@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore, tryAct, fileUrl, ago } from "../store.js";
-import { Panel, Btn, Check, Text, Seg, Dot, I, useSize, Grip } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Seg, Dot, I, useSize, Grip, Confirm } from "../ui.jsx";
 
 const TEMPLATES = {
   "weekly-tafsir": { title: "Studiekring · Tafsir Juzz 'Amma", fields: { subtitle: "elke vrijdag", speaker: "Ustadh Tasneem Sadiq al-Qadri", programme: "20.00 - 20.45 Tafsir les · 20.45 Thee & versnaperingen · 21.00 Individuele salawat & dhikr", location: "Locatie: Coolhaven 238a", note: "Een live meeting-link wordt beschikbaar gesteld", qrCaption: "Scan voor onze WhatsApp-groep" } },
@@ -12,6 +12,8 @@ const nextFriday = () => { const d = new Date(); d.setDate(d.getDate() + ((5 - d
 const nl = (d) => d.toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" });
 
 export default function Posters({ go }) {
+  // window.confirm/prompt never show in the app's webview: its own dialog and the file picker instead.
+  const [askRemove, setAskRemove] = useState(false);
   const [sz0, setsz0] = useSize("posters.left", 230);
   const [sz1, setsz1] = useSize("posters.export", 300);
   const s = useStore();
@@ -50,7 +52,7 @@ export default function Posters({ go }) {
       {!p ? <div className="panel grow"><div className="empty">Choose a template to start a poster.</div></div> : (
         <>
           <div className="col grow">
-            <Panel title="Fields" sub={`${p.template}, date set to the coming Friday`} style={{ flexShrink: 0 }} right={<Btn small icon danger onClick={() => confirm("Remove this poster?") && tryAct("remove_poster", { id: p.id })} aria-label="Remove">{I.trash}</Btn>}>
+            <Panel title="Fields" sub={`${p.template}, date set to the coming Friday`} style={{ flexShrink: 0 }} right={<><Btn small icon danger onClick={() => setAskRemove(true)} aria-label="Remove">{I.trash}</Btn>{askRemove && <Confirm text="Remove this poster?" yes="Remove" no="Keep" onYes={() => { tryAct("remove_poster", { id: p.id }); setAskRemove(false); }} onNo={() => setAskRemove(false)} />}</>}>
               <div className="grid2">
                 <label className="field"><span>Title</span><Text value={p.title} onCommit={(v) => tryAct("update_poster", { id: p.id, patch: { title: v } })} /></label>
                 <label className="field"><span>Subtitle</span><Text value={f.subtitle} onCommit={(v) => patchField("subtitle", v)} /></label>
@@ -65,7 +67,7 @@ export default function Posters({ go }) {
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span className="hint grow">{s.settings.posterReferenceMedia ? "Speaker photo set." : "No speaker photo yet (Settings › Posters)."} Each variant gets a white panel for the QR.</span><Btn primary disabled={!!job} onClick={() => tryAct("generate_poster", { id: p.id }, "Claude + Higgsfield are drawing")}>{job ? job.message || "Generating…" : p.variants?.length ? "Generate 3 more" : "Generate 3 variants"}</Btn></div>
             </Panel>
             <div className="panel grow">
-              <div className="panel-head"><span>Variants</span><span className="sub">{p.variants?.length ? `${p.variants.length} · QR ${p.qrOk ? "pasted and decoded ✓" : "not verified"}` : job ? job.message : "none yet"}</span><span className="grow" /><Btn small onClick={() => tryAct("open", { path: p.folder })}>Open folder</Btn><Btn small onClick={async () => { const path = prompt("Path to a PNG to add as a variant"); if (path) tryAct("add_variant", { id: p.id, path }, "Variant added"); }}>Add file…</Btn></div>
+              <div className="panel-head"><span>Variants</span><span className="sub">{p.variants?.length ? `${p.variants.length} · QR ${p.qrOk ? "pasted and decoded ✓" : "not verified"}` : job ? job.message : "none yet"}</span><span className="grow" /><Btn small onClick={() => tryAct("open", { path: p.folder })}>Open folder</Btn><Btn small onClick={async () => { const path = await tryAct("choose_file", { kind: "image", prompt: "Choose a picture to add as a variant" }); if (path) tryAct("add_variant", { id: p.id, path }, "Variant added"); }}>Add file…</Btn></div>
               <div className="scroll">
                 {p.error && <div className="empty coral">{p.error}</div>}
                 {!p.variants?.length && !p.error && <div className="empty">{job ? "Drawing… this takes a few minutes. Watch the Queue." : "Generate variants, or add PNGs you made elsewhere."}</div>}

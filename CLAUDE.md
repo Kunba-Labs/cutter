@@ -120,6 +120,10 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   controls, checks, slider thumbs, links, inspector group heads. Mint = done, the trim timeline
   and the current word; coral = failed. No stat tiles, no caps labels, no pill nav.
 
+- **No secrets in the repo** (public on GitHub). The YouTube OAuth client secret comes from the
+  deploy environment: `CUTTAR_YT_SECRET` or `.deploy.env` at the root (gitignored), read by
+  `core/build.rs`. The client id stays in code (it is an identifier).
+
 ## Gotchas
 
 - libass: BorderStyle 3 (opaque box) is drawn in the OUTLINE colour, padded by the Outline width;

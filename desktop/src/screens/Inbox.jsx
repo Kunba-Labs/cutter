@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useStore, tryAct, fmtLong, ago } from "../store.js";
-import { Panel, Btn, Check, Text, Dot, Bar, I, Brand, useSize, Grip } from "../ui.jsx";
+import { Panel, Btn, Check, Text, Dot, Bar, I, Brand, useSize, Grip, Confirm } from "../ui.jsx";
 
 export default function Inbox({ go, setAdding }) {
+  // window.confirm never shows in the app's webview: the app's own dialog asks instead.
+  const [askStop, setAskStop] = useState(null);
   const [sz0, setsz0] = useSize("inbox.left", 240);
   const s = useStore();
   const [selId, setSelId] = useState(null);
@@ -22,7 +24,7 @@ export default function Inbox({ go, setAdding }) {
           {s.channels.map((c) => <div key={c.id} className={`nav-item ${ch?.id === c.id ? "on" : ""}`} style={{ padding: "6px 10px" }} onClick={() => setSelId(c.id)}><Brand id="youtube" mono={!c.enabled} style={{ opacity: c.enabled ? 1 : 0.5 }} /><span className="grow ell">{c.name}</span><span className={s.inbox.some((i) => i.channelId === c.id && i.status === "new") ? "pink" : "muted"}>{s.inbox.filter((i) => i.channelId === c.id && i.status === "new").length || ""}</span></div>)}
         </div>
         {ch && (
-          <Panel title={`Rules · ${ch.name}`} className="grow" right={<Btn small icon danger onClick={() => confirm(`Stop watching ${ch.name}?`) && tryAct("remove_channel", { id: ch.id })} aria-label="Remove">{I.trash}</Btn>}>
+          <Panel title={`Rules · ${ch.name}`} className="grow" right={<><Btn small icon danger onClick={() => setAskStop(ch)} aria-label="Remove">{I.trash}</Btn>{askStop && <Confirm text={`Stop watching ${askStop.name}?`} yes="Stop watching" no="Keep" onYes={() => { tryAct("remove_channel", { id: askStop.id }); setAskStop(null); }} onNo={() => setAskStop(null)} />}</>}>
             <Check label="Enabled" checked={ch.enabled} onChange={(v) => patch({ enabled: v })} />
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}><span className="muted">Check every</span><span>{ch.intervalH} h</span></div>
             <input type="range" className="slider" min="1" max="48" value={ch.intervalH} onChange={(e) => patch({ intervalH: +e.target.value })} />

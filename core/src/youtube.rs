@@ -20,7 +20,7 @@ fn agent() -> ureq::Agent {
 /// Open the consent page, catch the code on 127.0.0.1, trade it for tokens.
 pub fn connect(auth: &YoutubeAuth) -> Result<YoutubeAuth, String> {
     if auth.client_id.is_empty() || auth.client_secret.is_empty() {
-        return Err("Add the OAuth client id and secret first (Google Cloud console → Credentials → Desktop app).".into());
+        return Err("This build has no YouTube client secret. Put CUTTAR_YT_SECRET in .deploy.env and build again.".into());
     }
     let server = tiny_http::Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = match server.server_addr() {

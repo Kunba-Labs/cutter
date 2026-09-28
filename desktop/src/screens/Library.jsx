@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useStore, tryAct, fileUrl, fmtLong, ago, STAGES } from "../store.js";
-import { Panel, Btn, Dot, Bar, I, Brand, FileMark, useSize, Grip } from "../ui.jsx";
+import { useStore, tryAct, fileUrl, fmtLong, ago, STAGES, toast } from "../store.js";
+import { Panel, Btn, Dot, Bar, I, Brand, FileMark, useSize, Grip, Menu } from "../ui.jsx";
 
 export default function Library({ nav, go, query, setAdding }) {
   const [sz0, setsz0] = useSize("library.left", 220);
@@ -9,6 +9,23 @@ export default function Library({ nav, go, query, setAdding }) {
   const [filter, setFilter] = useState("all");
   const [fts, setFts] = useState(null);
   const sel = s.sources.find((x) => x.id === nav.sourceId) || null;
+  // Deleting a lecture: the dialog (askDel = the source) and the right-click menu on a row.
+  const [askDel, setAskDel] = useState(null);
+  const [menu, setMenu] = useState(null);
+  const remove = async (x, files) => {
+    setAskDel(null);
+    const r = await tryAct("remove_source", { id: x.id, files });
+    if (!r) return;
+    if (!files) toast("Removed from the library", "ok");
+    else if (r.filesDeleted) toast("Removed, files deleted", "ok");
+    else toast(`Removed. Its files are still in ${x.folder}`, "err");
+    if (sel?.id === x.id) go("library", { sourceId: null });
+  };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && askDel) { setAskDel(null); return; } if ((e.key === "Backspace" || e.key === "Delete") && sel && !askDel && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) { e.preventDefault(); setAskDel(sel); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sel, askDel]);
 
   const cands = (id) => s.candidates.filter((c) => c.sourceId === id);
   const jobOf = (id) => s.jobs.find((j) => j.refId === id && (j.status === "running" || j.status === "queued"));
@@ -71,7 +88,7 @@ export default function Library({ nav, go, query, setAdding }) {
               const j = jobOf(x.id);
               const n = cands(x.id).length, ok = cands(x.id).filter((c) => c.approved).length;
               return (
-                <div key={x.id} className={`row ${sel?.id === x.id ? "on" : ""}`} style={{ gridTemplateColumns: "48px minmax(0,1fr) 46px 200px 90px 80px" }} onClick={() => go("library", { sourceId: x.id, view: "reels" })} onDoubleClick={() => go(x.stage === "review" || n ? "reels" : "library", { sourceId: x.id, view: n ? "reels" : "transcript" })}>
+                <div key={x.id} className={`row ${sel?.id === x.id ? "on" : ""}`} style={{ gridTemplateColumns: "48px minmax(0,1fr) 46px 200px 90px 80px" }} onClick={() => go("library", { sourceId: x.id, view: "reels" })} onContextMenu={(e) => { e.preventDefault(); go("library", { sourceId: x.id, view: "reels" }); setMenu({ x: e.clientX, y: e.clientY, src: x }); }} onDoubleClick={() => go(x.stage === "review" || n ? "reels" : "library", { sourceId: x.id, view: n ? "reels" : "transcript" })}>
                   {x.thumbPath ? <img className="thumb" src={fileUrl(x.thumbPath)} width={44} height={25} alt="" /> : <span className="thumb" style={{ width: 44, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--muted)" }}>{x.kind === "file" ? <FileMark size={16} /> : <Brand id="youtube" size={16} />}</span>}
                   <span className="ell">{x.title} <span className="muted">· {fmtLong(x.duration)}</span></span>
                   <span>{(x.langOverride || x.language || "auto").toUpperCase()}</span>
@@ -102,9 +119,28 @@ export default function Library({ nav, go, query, setAdding }) {
 
       <Grip value={sz1} set={setsz1} dir={-1} reset={300} />
       <div className="panel" style={{ width: sz1, flexShrink: 0 }}>
-        <div className="panel-head"><span className="grow">Info</span>{sel && <><Btn small icon onClick={() => tryAct("open", { path: sel.folder })} aria-label="Reveal in Finder">{I.folder}</Btn><Btn small icon onClick={() => confirm(`Remove "${sel.title}" from the library? Files stay on disk.`) && tryAct("remove_source", { id: sel.id }) && go("library", { sourceId: null })} aria-label="Remove">{I.trash}</Btn></>}</div>
+        <div className="panel-head"><span className="grow">Info</span>{sel && <><Btn small icon onClick={() => tryAct("open", { path: sel.folder })} aria-label="Reveal in Finder">{I.folder}</Btn><Btn small icon onClick={() => setAskDel(sel)} aria-label="Delete" title="Delete (⌫)">{I.trash}</Btn></>}</div>
         {!sel ? <div className="empty">Select a source.</div> : <SourceInfo x={sel} s={s} go={go} />}
       </div>
+      {menu && <Menu at={menu} onClose={() => setMenu(null)} items={[
+        { label: "Reveal in Finder", onClick: () => tryAct("open", { path: menu.src.folder, reveal: true }) },
+        { label: "Delete…", danger: true, onClick: () => setAskDel(menu.src) },
+      ]} />}
+      {askDel && (
+        <div className="sheet-bg" style={{ zIndex: 30 }} onMouseDown={(e) => e.target === e.currentTarget && setAskDel(null)}>
+          <div className="sheet" style={{ width: 420 }}>
+            <div className="panel-body" style={{ padding: 16, gap: 12 }}>
+              <b style={{ fontSize: 14.5 }}>Delete “{askDel.title}”?</b>
+              <span className="muted" style={{ fontSize: 13.5 }}>Its {cands(askDel.id).length} reels go too. Deleted files can't come back.</span>
+              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <Btn onClick={() => setAskDel(null)} autoFocus>Keep</Btn>
+                <Btn onClick={() => remove(askDel, false)}>Remove, keep files</Btn>
+                <Btn danger onClick={() => remove(askDel, true)}>Delete with files</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

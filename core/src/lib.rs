@@ -483,7 +483,26 @@ impl Library {
             }
             "add_source" => json!(self.add_source(&a)?),
             "remove_source" => {
+                // A lecture out of the library: its reels, renders and transcript, and its queued jobs.
+                // `files: true` also deletes its folder, only when that sits inside the output folder.
+                // Refused while one of its reels is still waiting to be posted.
                 let id = id()?;
+                let src: Source = self.get("sources", &id).ok_or("no such source")?;
+                let reel_ids: Vec<String> = self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == id).map(|c| c.id).collect();
+                if self.all::<Post>("posts").iter().any(|p| p.candidate_id.as_ref().is_some_and(|c| reel_ids.contains(c)) && matches!(p.status.as_str(), "planned" | "confirmed" | "posting")) {
+                    return Err("some of its reels are still scheduled; unschedule them first".into());
+                }
+                for j in self.all::<Job>("jobs").into_iter().filter(|j| (j.ref_id == id || reel_ids.contains(&j.ref_id)) && matches!(j.status.as_str(), "queued" | "running")) {
+                    self.cancel_job(&j.id);
+                }
+                let mut deleted = false;
+                if a["files"].as_bool().unwrap_or(false) {
+                    let root = PathBuf::from(self.settings().out_dir);
+                    let dir = PathBuf::from(&src.folder);
+                    if !src.folder.is_empty() && dir != root && dir.starts_with(&root) && dir.is_dir() {
+                        deleted = std::fs::remove_dir_all(&dir).is_ok();
+                    }
+                }
                 let db = self.db.lock();
                 let _ = db.delete("sources", &id);
                 let _ = db.delete("transcripts", &id);
@@ -492,7 +511,7 @@ impl Library {
                 let _ = db.conn.execute("DELETE FROM transcripts_fts WHERE source_id=?1", rusqlite::params![id]);
                 drop(db);
                 self.changed();
-                json!(true)
+                json!({ "removed": true, "filesDeleted": deleted })
             }
             "run" => {
                 let id = id()?;

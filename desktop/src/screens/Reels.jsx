@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, reelTrack, useSpeed, setSpeed, toast } from "../store.js";
-import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot } from "../ui.jsx";
+import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm } from "../ui.jsx";
 import { captionCss, hookCss, litCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
@@ -37,6 +37,7 @@ export default function Reels({ nav, go }) {
   const [flash, setFlash] = useState(false);
   const [logoDrag, setLogoDrag] = useState(null);
   const [logoAspect, setLogoAspect] = useState(1);
+  const [askOver, setAskOver] = useState(false);
   // The reel's background track plays under the preview at its level (no ducking here).
   const music = useRef(null);
   const speed = useSpeed();
@@ -214,10 +215,12 @@ export default function Reels({ nav, go }) {
           ))}
         </div>
         <span className="grow" />
-        <div className="panel-foot">
-          <Btn primary className="grow" disabled={!ticked} onClick={async () => { const r = await tryAct("render", { sourceId }, `Rendering ${ticked} reels`); if (r) go("queue"); }}>Render {ticked} ticked · {ticked * ((s.settings.formats?.length || 3) + 1)} files</Btn>
+        <div className="panel-foot" style={{ flexWrap: "wrap" }}>
+          <Btn primary className="grow" style={{ flexBasis: "100%" }} disabled={!ticked} onClick={async () => { const r = await tryAct("render", { sourceId }, `Rendering ${ticked} reels`); if (r) go("queue"); }}>Render {ticked} ticked · {ticked * ((s.settings.formats?.length || 3) + 1)} files</Btn>
           <select className="input" style={{ width: 76 }} value={s.settings.targetReelS || 60} onChange={(e) => tryAct("settings", { patch: { targetReelS: +e.target.value, maxReelS: Math.round(+e.target.value * 1.5) } })} title="Length the reel finder aims for. A thought that closes sooner stays shorter; one that needs more may run to 1.5×.">{[20, 30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>~{n} s</option>)}</select>
           <Btn onClick={() => tryAct("run", { id: sourceId, stage: "detect" }, "Claude is reading again")}>Find again</Btn>
+          <Btn danger onClick={() => setAskOver(true)} title="Delete this lecture's reels and their files, then find new ones">Start over</Btn>
+          {askOver && <Confirm text={`Delete all ${cands.length} reels of this lecture, their queued renders and their files, and find new ones at ~${s.settings.targetReelS || 60} s? The video and transcript stay.`} yes="Delete and find again" no="Keep" onYes={async () => { setAskOver(false); const r = await tryAct("clear_reels", { sourceId }); if (r) tryAct("run", { id: sourceId, stage: "detect" }, `${r.reels} reels deleted. Claude is reading again`); }} onNo={() => setAskOver(false)} />}
         </div>
       </div>
 

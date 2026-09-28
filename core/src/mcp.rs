@@ -68,6 +68,7 @@ pub const TOOLS: &[(&str, &str, &str, &str, &str)] = &[
     ("cancel_job", "Cancel a queued or running job.", r#"{"id":{"type":"string"}}"#, "id", "cancel_job"),
     ("retry_job", "Queue a failed job again.", r#"{"id":{"type":"string"}}"#, "id", "retry_job"),
     ("punchline", "Have the brain pick a reel's punchline (the teaser played before the reel, then the transition). update_candidate sets punchStart/punchEnd/introOn/transition by hand.", r#"{"id":{"type":"string"}}"#, "id", "punchline"),
+    ("clear_reels", "Start a lecture's reels over: deletes its reels, their jobs, render records and reel folders (video and transcript stay). Refused when one is scheduled or posted.", r#"{"sourceId":{"type":"string"}}"#, "sourceId", "clear_reels"),
     ("add_music", "Add background music: a YouTube video or playlist link (a watch link with &list= expands to the whole list). Tracks download in the background.", r#"{"url":{"type":"string"}}"#, "url", "add_music"),
     ("remove_music", "Remove a background track (id) or every track added with one link (listUrl).", r#"{"id":{"type":"string"},"listUrl":{"type":"string"}}"#, "", "remove_music"),
     ("pick_cover", "Choose a reel's cover frame again (sharpness pass + brain) and render its formats again.", r#"{"id":{"type":"string"}}"#, "id", "pick_cover"),

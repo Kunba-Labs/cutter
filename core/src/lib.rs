@@ -764,6 +764,37 @@ impl Library {
                 }
                 json!(jobs)
             }
+            "clear_reels" => {
+                // Start a lecture's reels over: its reels, their jobs, render records and reel folders go;
+                // the video and the transcript stay. Refused while a post points at one of them.
+                let sid = s("sourceId").ok_or("sourceId required")?;
+                let src: Source = self.get("sources", &sid).ok_or("no such source")?;
+                let cands: Vec<Candidate> = self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == sid).collect();
+                let ids: Vec<String> = cands.iter().map(|c| c.id.clone()).collect();
+                if self.all::<Post>("posts").iter().any(|p| p.candidate_id.as_ref().is_some_and(|c| ids.contains(c)) && p.status != "failed") {
+                    return Err("some of these reels are scheduled or posted; unschedule them first".into());
+                }
+                for j in self.all::<Job>("jobs").into_iter().filter(|j| ids.contains(&j.ref_id) && matches!(j.status.as_str(), "queued" | "running")) {
+                    self.cancel_job(&j.id);
+                }
+                let root = PathBuf::from(&src.folder);
+                let mut dirs = 0;
+                // The folder by the current title, and the ones the renders were written to (a title may have changed).
+                let mut folders: Vec<PathBuf> = cands.iter().map(|c| root.join(slug(&c.title))).collect();
+                folders.extend(self.all::<Render>("renders").into_iter().filter(|r| ids.contains(&r.candidate_id)).filter_map(|r| Path::new(&r.path).parent().map(Path::to_path_buf)));
+                folders.sort();
+                folders.dedup();
+                for dir in folders {
+                    // Only a reel folder inside the lecture's folder, never the folder itself.
+                    if dir != root && dir.starts_with(&root) && dir.is_dir() && std::fs::remove_dir_all(&dir).is_ok() {
+                        dirs += 1;
+                    }
+                }
+                let renders = self.db.lock().delete_where::<Render>("renders", |r| ids.contains(&r.candidate_id)).unwrap_or(0);
+                let reels = self.db.lock().delete_where::<Candidate>("candidates", |c| c.source_id == sid).unwrap_or(0);
+                self.changed();
+                json!({ "reels": reels, "renders": renders, "folders": dirs })
+            }
             "punchline" => {
                 // The brain picks the teaser line of a reel that has none (or picks again).
                 let id = id()?;

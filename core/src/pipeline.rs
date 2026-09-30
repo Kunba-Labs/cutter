@@ -59,6 +59,7 @@ fn run(lib: &Library, job: &Job) -> Result<Value, String> {
         "music" => music(lib, job),
         "loudness" => loudness(lib, job),
         "render" => render(lib, job),
+        "stamp_logo" => stamp_logo(lib, job),
         "publish" => publish(lib, job),
         "check_channel" => check_channel(lib, job),
         "poster" => poster(lib, job),
@@ -544,6 +545,37 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
             Err(e)
         }
     }
+}
+
+/// The logo onto a finished render that lacks it, without rendering the reel again: one pass over the
+/// file, sound copied. Skipped when the file has it already or the reel should not carry it.
+fn stamp_logo(lib: &Library, job: &Job) -> Result<Value, String> {
+    let c: Candidate = lib.get("candidates", &job.ref_id).ok_or("candidate is gone")?;
+    let src = source(lib, &c.source_id)?;
+    let s = lib.settings();
+    let format = job.args["format"].as_str().unwrap_or("shorts").to_string();
+    let r = lib.all::<Render>("renders").into_iter().find(|r| r.candidate_id == c.id && r.format == format && r.status == "done").ok_or("render it first")?;
+    let file = PathBuf::from(&r.path);
+    let track = reel_music(lib, &s, &c);
+    let pl = plan(&s, &c, src.duration, &format, track.is_some());
+    let Some((path, x, y, size, opacity, on_card)) = pl.logo.as_ref() else {
+        return Ok(json!({ "message": "no logo on this reel (off, or the logo file is gone)" }));
+    };
+    let l = ffmpeg::LogoSpec { path, x: *x, y: *y, size: *size, opacity: *opacity, on_card: *on_card };
+    let reel_s = pl.seconds() - pl.card.as_ref().map(|c| c.1).unwrap_or(0.0);
+    if ffmpeg::has_logo(&file, &l, reel_s / 2.0)? {
+        return Ok(json!({ "message": "has the logo already" }));
+    }
+    // Stops where the end card starts unless it stays on the card.
+    let until = (pl.card.is_some() && !on_card).then_some(reel_s);
+    let tmp = file.with_extension("stamp.mp4");
+    let jid = job.id.clone();
+    ffmpeg::stamp_logo(&file, &tmp, &l, until, &s.render_quality, |p, m| lib.job_progress(&jid, p, m)).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
+    std::fs::rename(&tmp, &file).map_err(|e| e.to_string())?;
+    lib.changed();
+    Ok(json!({ "message": format!("logo on {}", file.display()) }))
 }
 
 fn publish(lib: &Library, job: &Job) -> Result<Value, String> {

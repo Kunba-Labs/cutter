@@ -737,7 +737,7 @@ impl Library {
                 let from: Candidate = self.get("candidates", &id).ok_or("no such candidate")?;
                 let keys: Vec<String> = a["keys"].as_array().map(|k| k.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_else(|| vec!["style".into(), "hookStyle".into(), "captionPct".into()]);
                 let scope = s("scope").unwrap_or_else(|| "source".into());
-                let mut n = 0;
+                let mut changed = Vec::new();
                 for mut c in self.all::<Candidate>("candidates") {
                     if c.id == from.id || c.discarded {
                         continue;
@@ -774,9 +774,10 @@ impl Library {
                         }
                     }
                     self.save_candidate(&mut c);
-                    n += 1;
+                    changed.push(c.id);
                 }
-                json!(n)
+                // The reels changed: the UI offers to render those again.
+                json!(changed)
             }
             "approve" => {
                 let ids: Vec<String> = a["ids"].as_array().map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_else(|| s("id").into_iter().collect());
@@ -830,6 +831,19 @@ impl Library {
                     for f in formats {
                         jobs.push(self.enqueue("render", &cid, &format!("{} · {f}", c.title), json!({ "format": f })));
                     }
+                }
+                json!(jobs)
+            }
+            "stamp_logo" => {
+                // The logo onto finished files that lack it, without rendering again (see pipeline::stamp_logo).
+                let mut ids: Vec<String> = a["candidateIds"].as_array().map(|x| x.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+                if let Some(sid) = s("sourceId") {
+                    ids.extend(self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == sid && !c.discarded).map(|c| c.id));
+                }
+                let mut jobs = Vec::new();
+                for r in self.all::<Render>("renders").into_iter().filter(|r| r.status == "done" && r.format != "clean" && ids.contains(&r.candidate_id)) {
+                    let title = self.get::<Candidate>("candidates", &r.candidate_id).map(|c| c.title).unwrap_or_default();
+                    jobs.push(self.enqueue("stamp_logo", &r.candidate_id, &format!("{title} · {} · logo", r.format), json!({ "format": r.format })));
                 }
                 json!(jobs)
             }

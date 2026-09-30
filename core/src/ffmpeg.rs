@@ -213,17 +213,56 @@ pub struct LogoSpec<'a> {
     pub on_card: bool,
 }
 
+fn logo_width(l: &LogoSpec, w: i64) -> i64 {
+    (((w as f64 * l.size.clamp(0.03, 0.8)) / 2.0).round() as i64 * 2).max(2)
+}
+
 /// The logo's filters over the stream `v`, the logo image being input `lk`; returns them and the new label.
-fn logo_filters(l: &LogoSpec, lk: usize, w: i64, v: &str) -> (Vec<String>, String) {
-    let lw = (((w as f64 * l.size.clamp(0.03, 0.8)) / 2.0).round() as i64 * 2).max(2);
+/// `until`: only over the first seconds (a stamp on a finished file that ends in an end card).
+fn logo_filters(l: &LogoSpec, lk: usize, w: i64, v: &str, until: Option<f64>) -> (Vec<String>, String) {
+    let lw = logo_width(l, w);
     let out = format!("{v}l");
+    let enable = until.map(|u| format!(":enable='lt(t,{u:.3})'")).unwrap_or_default();
     (
         vec![
             format!("[{lk}:v]scale={lw}:-2,format=rgba,colorchannelmixer=aa={:.2}[lg]", l.opacity.clamp(0.05, 1.0)),
-            format!("[{v}][lg]overlay=x='(W-w)*{:.4}':y='(H-h)*{:.4}',format=yuv420p[{out}]", l.x.clamp(0.0, 1.0), l.y.clamp(0.0, 1.0)),
+            format!("[{v}][lg]overlay=x='(W-w)*{:.4}':y='(H-h)*{:.4}'{enable},format=yuv420p[{out}]", l.x.clamp(0.0, 1.0), l.y.clamp(0.0, 1.0)),
         ],
         out,
     )
+}
+
+/// Does the finished `file` already carry this logo at `t`? Laying it on again barely changes the
+/// logo's box when it is there (PSNR ≈ ∞ at full opacity), and changes it a lot when it is not (~20 dB).
+pub fn has_logo(file: &Path, l: &LogoSpec, t: f64) -> Result<bool, String> {
+    let pr = probe(file)?;
+    let lp = probe(l.path)?;
+    let lw = logo_width(l, pr.width);
+    let lh = ((lw as f64 * lp.height as f64 / lp.width.max(1) as f64 / 2.0).round() as i64 * 2).max(2);
+    let (x, y) = (((pr.width - lw) as f64 * l.x.clamp(0.0, 1.0)) as i64, ((pr.height - lh) as f64 * l.y.clamp(0.0, 1.0)) as i64);
+    let (f, out) = logo_filters(l, 1, pr.width, "b", None);
+    let fc = format!("[0:v]split[a][b];{};[a]crop={lw}:{lh}:{x}:{y}[a2];[{out}]crop={lw}:{lh}:{x}:{y}[c2];[a2][c2]psnr", f.join(";"));
+    let o = Command::new(crate::tools::ffmpeg_bin()).args(["-hide_banner", "-nostats", "-ss", &format!("{t:.3}")]).arg("-i").arg(file).arg("-i").arg(l.path).args(["-frames:v", "1", "-filter_complex", &fc, "-f", "null", "-"]).output().map_err(|e| e.to_string())?;
+    let err = String::from_utf8_lossy(&o.stderr);
+    let avg = err.split("average:").nth(1).and_then(|s| s.split_whitespace().next()).ok_or("no PSNR from ffmpeg")?;
+    // ponytail: one frame, fixed 35 dB line; sample more frames if a busy background ever fools it.
+    Ok(avg == "inf" || avg.parse::<f64>().map(|p| p > 35.0).unwrap_or(false))
+}
+
+/// Burns the logo onto a finished file (over the first `until` seconds, else all of it); the sound is copied.
+pub fn stamp_logo(file: &Path, out: &Path, l: &LogoSpec, until: Option<f64>, quality: &str, mut on_progress: impl FnMut(f64, &str)) -> Result<(), String> {
+    let pr = probe(file)?;
+    let (f, v) = logo_filters(l, 1, pr.width, "0:v", until);
+    let run = |encoder: &[&str], on_progress: &mut dyn FnMut(f64, &str)| {
+        let mut cmd = Command::new(crate::tools::ffmpeg_bin());
+        cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]).arg("-i").arg(file).arg("-i").arg(l.path);
+        cmd.args(["-filter_complex", &f.join(";"), "-map", &format!("[{v}]"), "-map", "0:a?"]).args(encoder).args(["-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(out);
+        run_with_progress(&mut cmd, pr.duration.max(0.1), out, on_progress)
+    };
+    match run(&encoder_args(quality), &mut on_progress) {
+        Err(e) if e.contains("videotoolbox") || e.contains("Unknown encoder") => run(&encoder_args("good"), &mut on_progress),
+        r => r,
+    }
 }
 
 /// The teaser→reel transitions, picture only (the music carries the sound): (xfade name or None for a
@@ -367,7 +406,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
         let logo_last = r.end_card.is_some() && r.logo.as_ref().is_some_and(|l| l.on_card);
         if let Some(l) = r.logo.as_ref().filter(|_| !logo_last) {
             let lk = input(&mut cmd, vec!["-i".into(), l.path.display().to_string()]);
-            let (f, out) = logo_filters(l, lk, w, &v);
+            let (f, out) = logo_filters(l, lk, w, &v, None);
             fc.extend(f);
             v = out;
         }
@@ -387,7 +426,7 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
         }
         if let Some(l) = r.logo.as_ref().filter(|_| logo_last) {
             let lk = input(&mut cmd, vec!["-i".into(), l.path.display().to_string()]);
-            let (f, out) = logo_filters(l, lk, w, &v);
+            let (f, out) = logo_filters(l, lk, w, &v, None);
             fc.extend(f);
             v = out;
         }
@@ -683,6 +722,25 @@ mod tests {
         let want = total_seconds(2.0, 6.0, Some((8.0, 10.0, "swoosh")), 1.0);
         assert!((p.duration - want).abs() < 0.3, "{} vs {want}", p.duration);
         assert!(p.has_audio && p.width == 1080);
+    }
+
+    /// A finished file without the logo: found missing, stamped (sound kept), then found present.
+    #[test]
+    fn stamp_logo_once() {
+        let d = tempfile::tempdir().unwrap();
+        let ff = crate::tools::ffmpeg_bin();
+        let (file, logo, out) = (d.path().join("reel.mp4"), d.path().join("logo.png"), d.path().join("stamped.mp4"));
+        let ok = |args: &[&str]| Command::new(&ff).args(["-y", "-loglevel", "error"]).args(args).status().map(|s| s.success()).unwrap_or(false);
+        if !ok(&["-f", "lavfi", "-i", "testsrc2=s=540x960:r=30:d=3", "-f", "lavfi", "-i", "sine=f=440:d=3", "-c:v", "libx264", "-c:a", "aac", "-shortest", file.to_str().unwrap()]) {
+            return; // no ffmpeg here
+        }
+        assert!(ok(&["-f", "lavfi", "-i", "color=white:s=300x120,format=rgba,drawbox=x=20:y=20:w=260:h=80:color=red:t=fill", "-frames:v", "1", logo.to_str().unwrap()]));
+        let l = LogoSpec { path: &logo, x: 0.1, y: 0.05, size: 0.25, opacity: 1.0, on_card: false };
+        assert!(!has_logo(&file, &l, 1.5).unwrap());
+        stamp_logo(&file, &out, &l, Some(2.0), "fast", |_, _| {}).unwrap();
+        assert!(has_logo(&out, &l, 1.5).unwrap());
+        assert!(!has_logo(&out, &l, 2.5).unwrap(), "the logo stops at `until`");
+        assert!(probe(&out).unwrap().has_audio);
     }
 
     #[test]

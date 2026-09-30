@@ -135,6 +135,13 @@ export function useSize(key, def, min = 160, max = 900) {
   return [v, set];
 }
 
+/* useState that this machine remembers across restarts (a choice, not data). */
+export function useStored(key, def) {
+  const [v, setV] = useState(() => { try { const s = localStorage.getItem(`cuttar.${key}`); return s == null ? def : JSON.parse(s); } catch { return def; } });
+  const set = (x) => { setV(x); try { localStorage.setItem(`cuttar.${key}`, JSON.stringify(x)); } catch {} };
+  return [v, set];
+}
+
 /* The drag handle between two panels, sitting in the gap. `dir` -1 when the panel it sizes is on the
    right (or below): dragging towards it makes it bigger. Double-click restores `reset`. */
 export function Grip({ value, set, dir = 1, axis = "x", reset }) {

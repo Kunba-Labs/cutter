@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useStore, act, tryAct, fileUrl, fmt, fmtLong, CATS, FORMATS, TRANSITIONS, LOUDNESS, FORMAT_BRAND, reelTrack, useSpeed, setSpeed, toast, audioGain, resumeAudio, dbGain, levelDb, PREVIEW_LUFS } from "../store.js";
-import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, Grip, Menu, Brand, FileMark } from "../ui.jsx";
+import { Speed, Panel, Btn, Seg, Field, Check, Text, I, Cat, CAT_NAMES, Dot, Confirm, useSize, useStored, Grip, Menu, Brand, FileMark } from "../ui.jsx";
 import { captionCss, hookCss, litCss } from "./Style.jsx";
 
 const SPECS = { shorts: [9, 16], reels: [9, 16], tiktok: [9, 16], feed: [4, 5], landscape: [16, 9] };
@@ -38,8 +38,8 @@ export default function Reels({ nav, go }) {
   const refreshSeg = (r, index) => setDetail((d) => d && { ...d, transcript: { ...d.transcript, segments: d.transcript.segments.map((g, i) => (i === index ? r : g)) } });
   const [tab, setTab] = useState("text");
   const [teaserOpen, setTeaserOpen] = useState(false);
-  const [applyScope, setApplyScope] = useState("source");
-  const [applyKeys, setApplyKeys] = useState(["style", "hookStyle", "captionPct"]);
+  const [applyScope, setApplyScope] = useStored("apply.scope", "source");
+  const [applyKeys, setApplyKeys] = useStored("apply.keys", ["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
   const video = useRef(null);
   // The teaser preview: the punchline, then the reel's transition (`flash` holds its name), then the reel.
@@ -388,6 +388,10 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
   const colorTimer = useRef(null);
   const setCardColor = (hex) => { clearTimeout(colorTimer.current); colorTimer.current = setTimeout(() => tryAct("end_card_image", { background: hex }), 450); };
   const done = s.renders.filter((r) => r.candidateId === c.id && r.status === "done");
+  // After a copy: the reels it changed that already have files (those files still show the old settings).
+  const [copied, setCopied] = useState(null);
+  useEffect(() => setCopied(null), [c.id]);
+  const stale = copied ? copied.ids.filter((id) => s.renders.some((r) => r.candidateId === id && r.status === "done")) : [];
   return (
     <>
       {tab === "text" && <div className="insp-group">
@@ -481,7 +485,12 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
           {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
         </div>
-        <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Copied to ${n} reels · render them again to update their files`); }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
+        <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const ids = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (ids) { setCopied({ ids, logo: applyKeys.includes("logo") }); tryAct("snapshot", {}, `Copied to ${ids.length} reels`); } }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
+        {stale.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+          <span className="hint" style={{ flexBasis: "100%" }}>{stale.length} of them already have files, which still show the old settings.</span>
+          <Btn small onClick={async () => { const r = await tryAct("render", { candidateIds: stale }, `Rendering ${stale.length} reels again`); if (r) { setCopied(null); go("queue"); } }}>Render {stale.length} again</Btn>
+          {copied.logo && s.settings.logo?.path && <Btn small onClick={async () => { const r = await tryAct("stamp_logo", { candidateIds: stale }, "Adding the logo to the finished files"); if (r) { setCopied(null); go("queue"); } }} title="Lays the logo onto the finished files without rendering them again. Files that have it already are skipped; a logo already there is not moved.">Only add the logo (faster)</Btn>}
+        </div>}
       </details>
     </>
   );

@@ -454,6 +454,10 @@ fn render(lib: &Library, job: &Job) -> Result<Value, String> {
     let pl = plan(&s, &c, src.duration, &format, track.is_some());
     let (start, end) = (pl.start, pl.end);
     let clean = format == "clean";
+    // A logo that is on but whose file moved must not render quietly without it.
+    if !clean && pl.logo.is_none() && c.logo["on"].as_bool().unwrap_or(s.logo.enabled) && !s.logo.path.is_empty() {
+        return Err(format!("the logo file is gone ({}); choose it again in Settings", s.logo.path));
+    }
     let style = reel_style(&s, &c);
     // One caption language: the translation when one is chosen and this reel has it, else the spoken words.
     // The language decides font and size (RTL scripts), so it must match what is actually drawn.

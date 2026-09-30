@@ -481,7 +481,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
           {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
         </div>
-        <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Copied to ${n} reels`); }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
+        <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const n = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (n != null) tryAct("snapshot", {}, `Copied to ${n} reels · render them again to update their files`); }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
       </details>
     </>
   );

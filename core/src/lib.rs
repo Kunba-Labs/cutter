@@ -1260,8 +1260,18 @@ impl Library {
             "settings" => {
                 let mut st = self.settings();
                 if a["patch"].is_object() {
+                    let mut patch = a["patch"].clone();
+                    // Keep our own copy of the logo: the original may be moved or deleted after choosing it.
+                    if let Some(p) = patch["logo"]["path"].as_str().filter(|p| !p.is_empty() && !Path::new(p).starts_with(&self.data_dir)) {
+                        let dir = self.data_dir.join("logo");
+                        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                        let name = Path::new(p).file_name().ok_or("not a file")?.to_string_lossy();
+                        let dst = dir.join(format!("{}-{name}", chrono::Utc::now().timestamp_millis()));
+                        std::fs::copy(p, &dst).map_err(|e| format!("copying the logo: {e}"))?;
+                        patch["logo"]["path"] = json!(dst);
+                    }
                     let mut v = serde_json::to_value(&st).unwrap();
-                    merge(&mut v, &a["patch"]);
+                    merge(&mut v, &patch);
                     st = serde_json::from_value(v).map_err(|e| e.to_string())?;
                     if st.caption_templates.is_empty() {
                         st.caption_templates = model::caption_templates();

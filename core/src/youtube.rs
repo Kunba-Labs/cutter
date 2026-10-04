@@ -213,6 +213,24 @@ fn urldec(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
+/// A link to the moment `secs` into a YouTube video, from any of its link shapes (watch, youtu.be,
+/// live, shorts, embed). None for anything that is not a YouTube video.
+pub fn moment_link(url: &str, secs: f64) -> Option<String> {
+    let u = url::Url::parse(url).ok()?;
+    let host = u.host_str()?.trim_start_matches("www.").trim_start_matches("m.");
+    let id = match host {
+        "youtu.be" => u.path_segments()?.next().map(String::from),
+        "youtube.com" | "music.youtube.com" => match u.path_segments()?.collect::<Vec<_>>()[..] {
+            ["watch"] => u.query_pairs().find(|(k, _)| k == "v").map(|(_, v)| v.to_string()),
+            ["live" | "shorts" | "embed", id, ..] => Some(id.to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+    .filter(|id| id.len() == 11)?;
+    Some(format!("https://youtu.be/{id}?t={}", secs.max(0.0) as u64))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +238,13 @@ mod tests {
     fn url_codec() {
         assert_eq!(urlenc("a b/c"), "a%20b%2Fc");
         assert_eq!(urldec("4%2F0AX%2Bz+q"), "4/0AX+z q");
+    }
+    #[test]
+    fn moments() {
+        assert_eq!(moment_link("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=x", 754.9).as_deref(), Some("https://youtu.be/dQw4w9WgXcQ?t=754"));
+        assert_eq!(moment_link("https://youtu.be/dQw4w9WgXcQ?si=a", 3.0).as_deref(), Some("https://youtu.be/dQw4w9WgXcQ?t=3"));
+        assert_eq!(moment_link("https://www.youtube.com/live/dQw4w9WgXcQ", 0.0).as_deref(), Some("https://youtu.be/dQw4w9WgXcQ?t=0"));
+        assert_eq!(moment_link("https://vimeo.com/123", 5.0), None);
+        assert_eq!(moment_link("https://www.youtube.com/@channel", 5.0), None);
     }
 }

@@ -604,7 +604,13 @@ fn publish(lib: &Library, job: &Job) -> Result<Value, String> {
                 let jid = job.id.clone();
                 let title = format!("{}{}", p.title.chars().take(95).collect::<String>(), auth.title_suffix);
                 let tags: Vec<String> = p.caption.split_whitespace().filter_map(|w| w.strip_prefix('#')).map(String::from).collect();
-                let id = youtube::upload(&auth, &youtube::Upload { path: Path::new(&path), title: &title, description: &p.caption, tags: &tags, category_id: &auth.category_id, privacy: &auth.privacy, publish_at: publish_at.as_deref() }, |pr, m| lib.job_progress(&jid, pr, m))?;
+                // The Short links back to the full lecture at the moment the reel comes from.
+                let moment = p.candidate_id.as_ref().and_then(|id| lib.get::<Candidate>("candidates", id)).and_then(|c| lib.get::<Source>("sources", &c.source_id)?.url.and_then(|u| youtube::moment_link(&u, c.start)));
+                let description = match moment {
+                    Some(l) => format!("{}\n\nFull lecture: {l}", p.caption),
+                    None => p.caption.clone(),
+                };
+                let id = youtube::upload(&auth, &youtube::Upload { path: Path::new(&path), title: &title, description: &description, tags: &tags, category_id: &auth.category_id, privacy: &auth.privacy, publish_at: publish_at.as_deref() }, |pr, m| lib.job_progress(&jid, pr, m))?;
                 // The chosen cover becomes the thumbnail; a refusal is logged, the post still counts.
                 if let Some(cover) = p.render_id.as_ref().and_then(|r| lib.get::<Render>("renders", r)).and_then(|r| r.cover_path).filter(|c| Path::new(c).exists()) {
                     lib.job_progress(&jid, 0.98, "thumbnail");

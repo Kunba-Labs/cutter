@@ -447,15 +447,16 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
           const ready = (s.tracks || []).filter((t) => t.status === "ready");
           const def = s.settings.music || "random";
           const picked = reelTrack(s.tracks || [], s.settings, c);
+          const none = (c.music || def) === "none";
           return <>
             <Field label={`Music${picked ? ` · ${picked.title}` : ""}`}><select className="input" value={c.music ?? ""} onChange={(e) => patch({ music: e.target.value || null })}>
-              <option value="">Default · {def === "none" ? "no music" : "random"}</option><option value="random">Random</option><option value="none">No music</option>
+              <option value="none">None</option><option value="">Default · {def === "none" ? "none" : "random"}</option><option value="random">Random</option>
               {ready.map((t) => <option key={t.id} value={t.id}>{t.title}{t.duration ? ` · ${fmtLong(t.duration)}` : ""}</option>)}
             </select></Field>
             {!ready.length && <span className="hint">No tracks yet. Add a YouTube video or playlist under Settings › Music.</span>}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Music level</span><input type="range" className="slider" min="0" max="1" step="0.05" value={c.musicVolume ?? s.settings.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num muted" style={{ width: 96 }} title="How far under the speaker the music sits (before it ducks while he speaks)">{levelDb(c.musicVolume ?? s.settings.musicVolume ?? 0.3)} dB{c.musicVolume == null ? " default" : ""}</span>{c.musicVolume != null && <a href="#" onClick={(e) => { e.preventDefault(); patch({ musicVolume: null }); }}>reset</a>}</div>
+            {!none && <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Music level</span><input type="range" className="slider" min="0" max="1" step="0.05" value={c.musicVolume ?? s.settings.musicVolume ?? 0.3} onChange={(e) => patch({ musicVolume: +e.target.value })} /><span className="num muted" style={{ width: 96 }} title="How far under the speaker the music sits (before it ducks while he speaks)">{levelDb(c.musicVolume ?? s.settings.musicVolume ?? 0.3)} dB{c.musicVolume == null ? " default" : ""}</span>{c.musicVolume != null && <a href="#" onClick={(e) => { e.preventDefault(); patch({ musicVolume: null }); }}>reset</a>}</div>}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 70 }}>Loudness</span><select className="input" value={c.loudness ?? ""} onChange={(e) => patch({ loudness: e.target.value === "" ? null : +e.target.value })}><option value="">Default · {LOUDNESS.find(([v]) => v === (s.settings.loudness ?? -11))?.[1] || `${s.settings.loudness} LUFS`}</option>{LOUDNESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-            <span className="hint">The music ducks under the speaker in the render. <a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>Music sources</a>.</span>
+            {!none && <span className="hint">The music ducks under the speaker in the render. <a href="#" onClick={(e) => { e.preventDefault(); go("settings"); }}>Music sources</a>.</span>}
           </>;
         })()}
       </div>}

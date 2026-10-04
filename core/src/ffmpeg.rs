@@ -257,7 +257,7 @@ pub fn stamp_logo(file: &Path, out: &Path, l: &LogoSpec, until: Option<f64>, qua
         let mut cmd = Command::new(crate::tools::ffmpeg_bin());
         cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]).arg("-i").arg(file).arg("-i").arg(l.path);
         cmd.args(["-filter_complex", &f.join(";"), "-map", &format!("[{v}]"), "-map", "0:a?"]).args(encoder).args(["-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(out);
-        run_with_progress(&mut cmd, pr.duration.max(0.1), out, on_progress)
+        run_with_progress(&mut cmd, pr.duration.max(0.1), out, on_progress, &mut |_| {})
     };
     match run(&encoder_args(quality), &mut on_progress) {
         Err(e) if e.contains("videotoolbox") || e.contains("Unknown encoder") => run(&encoder_args("good"), &mut on_progress),
@@ -304,9 +304,10 @@ pub fn aspect_key(width: i64, height: i64) -> &'static str {
 }
 
 /// Runs an ffmpeg command that was given `-progress pipe:1`, reporting 0..1 of `total` seconds.
-fn run_with_progress(cmd: &mut Command, total: f64, out: &Path, mut on_progress: impl FnMut(f64, &str)) -> Result<(), String> {
+fn run_with_progress(cmd: &mut Command, total: f64, out: &Path, mut on_progress: impl FnMut(f64, &str), on_spawn: &mut dyn FnMut(u32)) -> Result<(), String> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("ffmpeg: {e}"))?;
+    on_spawn(child.id());
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     let err_thread = std::thread::spawn(move || {
@@ -343,7 +344,7 @@ fn run_with_progress(cmd: &mut Command, total: f64, out: &Path, mut on_progress:
 pub fn faststart(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64, &str)) -> Result<(), String> {
     let mut cmd = Command::new(crate::tools::ffmpeg_bin());
     cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]).arg("-i").arg(src).args(["-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(out);
-    run_with_progress(&mut cmd, duration.max(0.1), out, on_progress)
+    run_with_progress(&mut cmd, duration.max(0.1), out, on_progress, &mut |_| {})
 }
 
 /// A 1080p H.264/AAC copy of a source the in-app player cannot play (VP9, AV1, 4K, Opus).
@@ -352,13 +353,13 @@ pub fn proxy(src: &Path, out: &Path, duration: f64, on_progress: impl FnMut(f64,
     let mut cmd = Command::new(crate::tools::ffmpeg_bin());
     cmd.args(["-y", "-hide_banner", "-nostats", "-loglevel", "error"]).arg("-i").arg(src);
     cmd.args(["-vf", "scale=trunc(iw*min(1\\,min(1920/iw\\,1920/ih))/2)*2:-2", "-c:v", "h264_videotoolbox", "-b:v", "8M", "-allow_sw", "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(out);
-    run_with_progress(&mut cmd, duration.max(0.1), out, on_progress)
+    run_with_progress(&mut cmd, duration.max(0.1), out, on_progress, &mut |_| {})
 }
 
 /// H.264 at the chosen quality, AAC 192k, normalised to `loudness` LUFS. One filter graph: the teaser
 /// and the cut (each with its own captions), the transition, the logo over both, the end
 /// card, then the background music under all of it. Progress from `-progress pipe:1`. Falls back to libx264 if the hardware encoder refuses.
-pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<(), String> {
+pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), mut on_spawn: impl FnMut(u32)) -> Result<(), String> {
     let dur = (r.end - r.start).max(0.1);
     let fps = if r.fps > 1.0 { r.fps.min(60.0) } else { 30.0 };
     let fps_s = format!("{fps:.3}");
@@ -446,9 +447,9 @@ pub fn render(r: &RenderSpec, mut on_progress: impl FnMut(f64, &str), on_spawn: 
         }
         cmd.args(["-filter_complex", &fc.join(";"), "-map", &format!("[{v}]"), "-map", &format!("[{a}]")]);
         cmd.args(encoder).args(["-pix_fmt", "yuv420p", "-r", &fps_s, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1"]).arg(r.out);
-        run_with_progress(&mut cmd, total, r.out, &mut on_progress)
+        // The pid goes to the job, so a cancel (or a newer render of the same file) kills this encode.
+        run_with_progress(&mut cmd, total, r.out, &mut on_progress, &mut on_spawn)
     };
-    let _ = &on_spawn;
     match run(&encoder_args(r.quality)) {
         Ok(()) => Ok(()),
         Err(e) if e.contains("videotoolbox") || e.contains("Unknown encoder") => {

@@ -279,7 +279,9 @@ impl Library {
 
     /// Queue a job unless the same kind+ref is already queued or running.
     pub fn enqueue(&self, kind: &str, ref_id: &str, label: &str, args: Value) -> String {
-        if let Some(j) = self.all::<Job>("jobs").into_iter().find(|j| j.kind == kind && j.ref_id == ref_id && matches!(j.status.as_str(), "queued" | "running") && j.args == args) {
+        // A job being cancelled is no longer the one asked for: the new one queues behind it (claim_job).
+        let going = self.cancel.lock().clone();
+        if let Some(j) = self.all::<Job>("jobs").into_iter().find(|j| j.kind == kind && j.ref_id == ref_id && matches!(j.status.as_str(), "queued" | "running") && j.args == args && !going.contains(&j.id)) {
             return j.id;
         }
         let j = Job { id: new_id("j"), kind: kind.into(), ref_id: ref_id.into(), label: label.into(), status: "queued".into(), args, created_at: now(), ..Default::default() };
@@ -297,7 +299,9 @@ impl Library {
         let db = self.db.lock();
         let jobs: Vec<Job> = db.all("jobs").unwrap_or_default();
         let transcribing = jobs.iter().any(|j| j.status == "running" && j.kind == "transcribe");
-        let mut j = jobs.into_iter().find(|j| j.status == "queued" && !(transcribing && j.kind == "transcribe"))?;
+        // Never two jobs on the same output: a job waits while one with the same kind, reel and args still runs.
+        let busy = |q: &Job| jobs.iter().any(|r| r.status == "running" && r.kind == q.kind && r.ref_id == q.ref_id && r.args == q.args);
+        let mut j = jobs.iter().find(|j| j.status == "queued" && !(transcribing && j.kind == "transcribe") && !busy(j))?.clone();
         j.status = "running".into();
         j.started_at = Some(now());
         let _ = db.put("jobs", &j.id, &j.created_at, &j);
@@ -819,7 +823,13 @@ impl Library {
                     let Some(c) = self.get::<Candidate>("candidates", &cid) else { continue };
                     let formats = formats_arg.clone().unwrap_or_else(|| reel_formats(&st, &c));
                     for f in formats {
-                        jobs.push(self.enqueue("render", &cid, &format!("{} · {f}", c.title), json!({ "format": f })));
+                        // Rendering again supersedes a running render of the same file (a queued one reads the
+                        // reel when it starts, so it stays as it is).
+                        let args = json!({ "format": f });
+                        for j in self.all::<Job>("jobs").into_iter().filter(|j| j.kind == "render" && j.ref_id == cid && j.status == "running" && j.args == args) {
+                            self.cancel_job(&j.id);
+                        }
+                        jobs.push(self.enqueue("render", &cid, &format!("{} · {f}", c.title), args));
                     }
                 }
                 json!(jobs)
@@ -1470,6 +1480,17 @@ mod tests {
         lib.dispatch("settings", json!({ "patch": { "lookKeys": ["style", "hookStyle"], "lookFrom": cid } })).unwrap();
         let n: Candidate = serde_json::from_value(lib.dispatch("add_candidate", json!({ "sourceId": id, "start": 300.0, "end": 330.0 })).unwrap()).unwrap();
         assert_eq!((n.style.as_deref(), n.title_on, n.caption_pct), (Some("Punch"), Some(false), None));
+        // Rendering again supersedes a running render of the same file; the new job waits until the old one is gone.
+        let first = lib.dispatch("render", json!({ "candidateIds": [cid], "formats": ["clean"] })).unwrap()[0].as_str().unwrap().to_string();
+        let mut claimed = Vec::new();
+        while let Some(j) = lib.claim_job() { claimed.push(j.id); }
+        assert!(claimed.contains(&first));
+        let second = lib.dispatch("render", json!({ "candidateIds": [cid], "formats": ["clean"] })).unwrap()[0].as_str().unwrap().to_string();
+        assert_ne!(first, second);
+        assert!(lib.claim_job().is_none());
+        lib.finish_job(&first, Err("killed".into()));
+        assert_eq!(lib.get::<Job>("jobs", &first).unwrap().status, "cancelled");
+        assert_eq!(lib.claim_job().map(|j| j.id), Some(second));
         let mut v = json!({ "a": 1, "o": { "x": 1, "y": 2 } });
         merge(&mut v, &json!({ "o": { "y": 3 }, "b": 2 }));
         assert_eq!(v, json!({ "a": 1, "b": 2, "o": { "x": 1, "y": 3 } }));

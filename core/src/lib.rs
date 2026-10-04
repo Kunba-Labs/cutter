@@ -262,6 +262,14 @@ impl Library {
         self.changed();
     }
 
+    /// A new reel takes the ticked "copy settings" keys from the template reel, if it still exists.
+    pub fn take_look(&self, c: &mut Candidate) {
+        let st = self.settings();
+        if let Some(from) = st.look_from.as_deref().and_then(|id| self.get::<Candidate>("candidates", id)) {
+            copy_look(&from, c, &st.look_keys);
+        }
+    }
+
     pub fn save_settings(&self, s: &Settings) {
         let _ = self.db.lock().save_settings(s);
         self.changed();
@@ -737,6 +745,9 @@ impl Library {
                 let from: Candidate = self.get("candidates", &id).ok_or("no such candidate")?;
                 let keys: Vec<String> = a["keys"].as_array().map(|k| k.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_else(|| vec!["style".into(), "hookStyle".into(), "captionPct".into()]);
                 let scope = s("scope").unwrap_or_else(|| "source".into());
+                let mut st = self.settings();
+                (st.look_keys, st.look_from) = (keys.clone(), Some(from.id.clone()));
+                self.save_settings(&st);
                 let mut changed = Vec::new();
                 for mut c in self.all::<Candidate>("candidates") {
                     if c.id == from.id || c.discarded {
@@ -750,29 +761,7 @@ impl Library {
                     if !in_scope {
                         continue;
                     }
-                    for k in &keys {
-                        match k.as_str() {
-                            "style" => c.style = from.style.clone(),
-                            "hookStyle" => c.hook_style = from.hook_style.clone(),
-                            "captionPct" => c.caption_pct = from.caption_pct,
-                            "captionsOn" => c.captions_on = from.captions_on,
-                            "titleOn" => c.title_on = from.title_on,
-                            "crop" => c.crop = from.crop.clone(),
-                            "formats" => c.formats = from.formats.clone(),
-                            "intro" => {
-                                c.intro_on = from.intro_on;
-                                c.transition = from.transition.clone();
-                            }
-                            "logo" => c.logo = from.logo.clone(),
-                            "endCard" => c.end_card_on = from.end_card_on,
-                            "music" => {
-                                c.music = from.music.clone();
-                                c.music_volume = from.music_volume;
-                            }
-                            "loudness" => c.loudness = from.loudness,
-                            _ => {}
-                        }
-                    }
+                    copy_look(&from, &mut c, &keys);
                     self.save_candidate(&mut c);
                     changed.push(c.id);
                 }
@@ -814,6 +803,7 @@ impl Library {
                 let sid = s("sourceId").ok_or("sourceId required")?;
                 let (start, end) = (a["start"].as_f64().ok_or("start")?, a["end"].as_f64().ok_or("end")?);
                 let mut c = Candidate { id: new_id("c"), source_id: sid, start, end: end.min(start + self.settings().max_reel_s as f64), category: "statement".into(), score: 7, title: s("title").unwrap_or_else(|| "Handpicked".into()), crop: json!({ "x": 0.5 }), created_at: now(), ..Default::default() };
+                self.take_look(&mut c);
                 self.save_candidate(&mut c);
                 json!(c)
             }
@@ -1475,8 +1465,41 @@ mod tests {
         lib.dispatch("undo", json!({})).unwrap();
         lib.dispatch("approve", json!({ "ids": [cid], "approved": false })).unwrap();
         assert!(lib.dispatch("redo", json!({})).is_err());
+        // A new reel takes the ticked "copy settings" keys from the template reel; "None" travels with the template.
+        lib.dispatch("update_candidate", json!({ "id": cid, "patch": { "style": "Punch", "titleOn": false, "captionPct": 40 } })).unwrap();
+        lib.dispatch("settings", json!({ "patch": { "lookKeys": ["style", "hookStyle"], "lookFrom": cid } })).unwrap();
+        let n: Candidate = serde_json::from_value(lib.dispatch("add_candidate", json!({ "sourceId": id, "start": 300.0, "end": 330.0 })).unwrap()).unwrap();
+        assert_eq!((n.style.as_deref(), n.title_on, n.caption_pct), (Some("Punch"), Some(false), None));
         let mut v = json!({ "a": 1, "o": { "x": 1, "y": 2 } });
         merge(&mut v, &json!({ "o": { "y": 3 }, "b": 2 }));
         assert_eq!(v, json!({ "a": 1, "b": 2, "o": { "x": 1, "y": 3 } }));
+    }
+}
+
+/// Copy `keys` of one reel's adjustments onto another (apply_look and every new reel).
+pub fn copy_look(from: &Candidate, c: &mut Candidate, keys: &[String]) {
+    for k in keys {
+        match k.as_str() {
+            // The template dropdowns hold "None" too: the on/off travels with the template.
+            "style" => (c.style, c.captions_on) = (from.style.clone(), from.captions_on),
+            "hookStyle" => (c.hook_style, c.title_on) = (from.hook_style.clone(), from.title_on),
+            "captionPct" => c.caption_pct = from.caption_pct,
+            "captionsOn" => c.captions_on = from.captions_on,
+            "titleOn" => c.title_on = from.title_on,
+            "crop" => c.crop = from.crop.clone(),
+            "formats" => c.formats = from.formats.clone(),
+            "intro" => {
+                c.intro_on = from.intro_on;
+                c.transition = from.transition.clone();
+            }
+            "logo" => c.logo = from.logo.clone(),
+            "endCard" => c.end_card_on = from.end_card_on,
+            "music" => {
+                c.music = from.music.clone();
+                c.music_volume = from.music_volume;
+            }
+            "loudness" => c.loudness = from.loudness,
+            _ => {}
+        }
     }
 }

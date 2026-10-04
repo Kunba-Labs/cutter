@@ -527,6 +527,10 @@ pub struct Settings {
     /// "best" | "good" | "fast", see ffmpeg::encoder_args.
     pub render_quality: String,
     pub formats: Vec<String>,
+    /// The keys ticked under "Copy settings to other reels"; every new reel takes them from `look_from`
+    /// (the reel last copied from, or whose ticks last changed).
+    pub look_keys: Vec<String>,
+    pub look_from: Option<String>,
     pub channel_name: String,
     pub glossary: Vec<String>,
     pub youtube: YoutubeAuth,
@@ -570,6 +574,8 @@ impl Default for Settings {
             end_card: EndCard { enabled: false, seconds: 2.5, paths: serde_json::json!({}), poster_id: None, image: String::new(), background: String::new(), music: true },
             render_quality: "best".into(),
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
+            look_keys: vec!["style".into(), "hookStyle".into(), "captionPct".into()],
+            look_from: None,
             channel_name: String::new(),
             glossary: vec!["Allah".into(), "salawat".into(), "dhikr".into(), "tafsir".into(), "sabr".into()],
             youtube: YoutubeAuth::default(),

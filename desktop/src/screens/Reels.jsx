@@ -39,7 +39,6 @@ export default function Reels({ nav, go }) {
   const [tab, setTab] = useState("text");
   const [teaserOpen, setTeaserOpen] = useState(false);
   const [applyScope, setApplyScope] = useStored("apply.scope", "source");
-  const [applyKeys, setApplyKeys] = useStored("apply.keys", ["style", "hookStyle", "captionPct"]);
   const aspectKey = format === "landscape" ? "16x9" : format === "feed" ? "4x5" : "9x16";
   const video = useRef(null);
   // The teaser preview: the punchline, then the reel's transition (`flash` holds its name), then the reel.
@@ -361,7 +360,7 @@ export default function Reels({ nav, go }) {
       <div className="panel" style={{ width: rightW, flexShrink: 0 }}>
         <div className="panel-head">{TABS.map(([v, l]) => <button key={v} type="button" className={`tab ${tab === v ? "on" : ""}`} onClick={() => setTab(v)}>{l}</button>)}</div>
         <div className="panel-body grow" style={{ gap: 12 }}>
-          <ReelDetails c={c} s={s} sourceId={sourceId} go={go} tab={tab} hookTpl={hookTpl} applyScope={applyScope} setApplyScope={setApplyScope} applyKeys={applyKeys} setApplyKeys={setApplyKeys} setPending={setPending} aspectKey={aspectKey} />
+          <ReelDetails c={c} s={s} sourceId={sourceId} go={go} tab={tab} hookTpl={hookTpl} applyScope={applyScope} setApplyScope={setApplyScope} setPending={setPending} aspectKey={aspectKey} />
         </div>
         <div className="panel-foot" style={{ flexWrap: "wrap" }}>
           <Btn primary className="grow" onClick={async () => { const r = await tryAct("approve", { ids: [c.id], approved: !c.approved }); if (r != null && !c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }}>{c.approved ? "Approved ✓" : "Approve and next"}</Btn>
@@ -377,7 +376,7 @@ const TABS = [["text", "Text"], ["look", "Look"], ["sound", "Sound"], ["publish"
 
 // The inspector's tabs. Memoised: during playback the parent re-renders every frame for the
 // picture and the current word; this part only when the reel or the store changes.
-const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl, applyScope, setApplyScope, applyKeys, setApplyKeys, setPending, aspectKey }) {
+const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl, applyScope, setApplyScope, setPending, aspectKey }) {
   const patch = (p) => tryAct("update_candidate", { id: c.id, patch: p });
   const L = s.settings.logo || {};
   const ec = s.settings.endCard || {};
@@ -386,6 +385,9 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
   // The colour picker fires while it is dragged: remake the cards once it settles.
   const colorTimer = useRef(null);
   const setCardColor = (hex) => { clearTimeout(colorTimer.current); colorTimer.current = setTimeout(() => tryAct("end_card_image", { background: hex }), 450); };
+  // The ticks live in settings: every new reel (found or marked) takes them from the reel they were set on.
+  const applyKeys = (s.settings.lookKeys || []).filter((k) => k !== "captionsOn" && k !== "titleOn");
+  const setApplyKeys = (keys) => tryAct("settings", { patch: { lookKeys: keys, lookFrom: c.id } });
   const done = s.renders.filter((r) => r.candidateId === c.id && r.status === "done");
   // After a copy: the reels it changed that already have files (those files still show the old settings).
   const [copied, setCopied] = useState(null);
@@ -406,10 +408,9 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
         <div className="insp-group">
           <div className="insp-head">Captions and title<span className="grow" /><a href="#" onClick={(e) => { e.preventDefault(); go("style", { sourceId, candidateId: c.id }); }}>edit templates</a></div>
           <div className="grid2">
-            <Field label="Captions"><select className="input" value={c.style || ""} onChange={(e) => patch({ style: e.target.value || null })}><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
-            <Field label="Title"><select className="input" value={c.hookStyle || ""} onChange={(e) => patch({ hookStyle: e.target.value || null })}><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
+            <Field label="Captions"><select className="input" value={c.captionsOn === false ? "__none" : c.style || ""} onChange={(e) => patch(e.target.value === "__none" ? { captionsOn: false } : { style: e.target.value || null, captionsOn: true })}><option value={"__none"}>None</option><option value="">Default · {s.settings.captionStyle?.name}</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
+            <Field label="Title"><select className="input" value={c.titleOn === false ? "__none" : c.hookStyle || ""} onChange={(e) => patch(e.target.value === "__none" ? { titleOn: false } : { hookStyle: e.target.value || null, titleOn: true })}><option value={"__none"}>None</option><option value="">Same as captions</option>{(s.settings.captionTemplates || []).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></Field>
           </div>
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}><Check label="Captions on the video" checked={c.captionsOn !== false} onChange={(v) => patch({ captionsOn: v })} /></div>
           <span className="hint">Drag the captions or the picture to place them.{c.captionPct != null && <> Captions at {c.captionPct}% · <a href="#" onClick={(e) => { e.preventDefault(); patch({ captionPct: null }); }}>reset</a>.</>}{(Math.abs((c.crop?.x ?? 0.5) - 0.5) > 0.005 || Math.abs((c.crop?.y ?? 0.5) - 0.5) > 0.005 || (c.crop?.z ?? 1) !== 1) && <> Crop {Math.round((c.crop?.x ?? 0.5) * 100)}% / {Math.round((c.crop?.y ?? 0.5) * 100)}% at {(c.crop?.z ?? 1).toFixed(2)}× · <a href="#" onClick={(e) => { e.preventDefault(); setPending((p) => ({ ...(p || {}), x: 0.5, y: 0.5, z: 1 })); patch({ crop: { x: 0.5, y: 0.5, z: 1 } }); }}>reset</a>.</>}</span>
         </div>
         <div className="insp-group">
@@ -484,7 +485,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
         <summary>Copy settings to other reels<span className="muted"> · {applyKeys.length} chosen</span></summary>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>To</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
-          {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionsOn", "Captions on/off"], ["titleOn", "Title on/off"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
+          {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
         </div>
         <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const ids = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (ids) { setCopied({ ids, logo: applyKeys.includes("logo") }); tryAct("snapshot", {}, `Copied to ${ids.length} reels`); } }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
         {stale.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>

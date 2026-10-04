@@ -81,6 +81,9 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
   the set, and cleared when poster cards take over. Length 0.5–10 s everywhere. `end_card.music`:
   music on under the card (default) or fading where it starts; `logo.on_end_card`: the logo overlay
   goes over the whole file instead of the reel only.
+- **New reels inherit the "Copy settings" ticks.** `settings.look_keys` (the ticks) + `look_from` (the
+  reel last copied from or ticked on); `add_candidate` and the find job run `Library::take_look`.
+  Caption/title "None" lives in the template dropdowns (captions_on/title_on travel with style/hookStyle).
 - **Panels resize** by the `Grip` in the gap (`ui.jsx useSize`, remembered in localStorage per key).
 - **Nothing posts without a confirm** unless a channel says `auto_schedule`. YouTube uploads
   as private with `publishAt`; TikTok/Meta are not linked (need approved apps): a confirmed post

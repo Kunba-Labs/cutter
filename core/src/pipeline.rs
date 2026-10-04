@@ -422,6 +422,8 @@ fn detect(lib: &Library, job: &Job) -> Result<Value, String> {
         if c.score < s.min_score {
             continue;
         }
+        // Before the delete below could take the template away; put (not save_candidate) keeps it "untouched".
+        lib.take_look(&mut c);
         if src.auto_approve_score > 0 && c.score >= src.auto_approve_score {
             c.approved = true;
         }

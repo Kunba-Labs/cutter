@@ -189,6 +189,7 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 .cal-col.today { background: rgba(245, 42, 203, .04); }
 .cal-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--rule); }
 .cal-drop { position: absolute; left: 3px; right: 3px; border: 1px dashed var(--mint); border-radius: 3px; background: rgba(62, 242, 163, .12); color: var(--mint); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.unsched.drop-here { outline: 1px dashed var(--mint); outline-offset: -1px; }
 .post-peek { position: fixed; z-index: 35; width: 216px; padding: 8px; border-radius: 6px; background: var(--head); border: 1px solid var(--rule); box-shadow: 0 10px 28px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; pointer-events: none; }
 .post-peek img { width: 200px; height: 356px; object-fit: cover; border-radius: 4px; background: #000; }
 .post-peek-empty { width: 200px; height: 120px; display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--bg); border-radius: 4px; }

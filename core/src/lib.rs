@@ -1152,6 +1152,12 @@ impl Library {
                 youtube::set_privacy(&self.youtube_auth(&target), &video, &privacy)?;
                 json!({ "video": video, "privacy": privacy })
             }
+            // Several actions as one undo step: {"actions": [{"action", "args"}, …]}.
+            "batch" => {
+                let list = a["actions"].as_array().ok_or("actions required")?;
+                let out = list.iter().map(|x| self.act(x["action"].as_str().unwrap_or(""), x["args"].clone())).collect::<Result<Vec<_>, _>>()?;
+                json!(out)
+            }
             "unschedule" => {
                 let id = id()?;
                 let _ = self.db.lock().delete("posts", &id);
@@ -1491,6 +1497,13 @@ mod tests {
         lib.finish_job(&first, Err("killed".into()));
         assert_eq!(lib.get::<Job>("jobs", &first).unwrap().status, "cancelled");
         assert_eq!(lib.claim_job().map(|j| j.id), Some(second));
+        // A batch is one undo step.
+        let n = lib.all::<Candidate>("candidates").len();
+        let add = json!({ "action": "add_candidate", "args": { "sourceId": id, "start": 400.0, "end": 420.0 } });
+        lib.dispatch("batch", json!({ "actions": [add, add] })).unwrap();
+        assert_eq!(lib.all::<Candidate>("candidates").len(), n + 2);
+        lib.dispatch("undo", json!({})).unwrap();
+        assert_eq!(lib.all::<Candidate>("candidates").len(), n);
         let mut v = json!({ "a": 1, "o": { "x": 1, "y": 2 } });
         merge(&mut v, &json!({ "o": { "y": 3 }, "b": 2 }));
         assert_eq!(v, json!({ "a": 1, "b": 2, "o": { "x": 1, "y": 3 } }));

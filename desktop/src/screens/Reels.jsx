@@ -360,10 +360,9 @@ export default function Reels({ nav, go }) {
       <Grip value={rightW} set={setRightW} dir={-1} reset={340} />
       <div className="panel" style={{ width: rightW, flexShrink: 0 }}>
         <div className="panel-head">{TABS.map(([v, l]) => <button key={v} type="button" className={`tab ${tab === v ? "on" : ""}`} onClick={() => setTab(v)}>{l}</button>)}</div>
-        <div className="panel-body" style={{ gap: 12 }}>
+        <div className="panel-body grow" style={{ gap: 12 }}>
           <ReelDetails c={c} s={s} sourceId={sourceId} go={go} tab={tab} hookTpl={hookTpl} applyScope={applyScope} setApplyScope={setApplyScope} applyKeys={applyKeys} setApplyKeys={setApplyKeys} setPending={setPending} aspectKey={aspectKey} />
         </div>
-        <span className="grow" />
         <div className="panel-foot" style={{ flexWrap: "wrap" }}>
           <Btn primary className="grow" onClick={async () => { const r = await tryAct("approve", { ids: [c.id], approved: !c.approved }); if (r != null && !c.approved) { const i = cands.findIndex((v) => v.id === c.id); const next = cands.slice(i + 1).find((v) => !v.approved && !v.discarded); if (next) setSelId(next.id); } }}>{c.approved ? "Approved ✓" : "Approve and next"}</Btn>
           <Btn onClick={async () => { const r = await tryAct("render", { candidateIds: [c.id] }, "Rendering"); if (r) go("queue"); }}>Render now</Btn>
@@ -479,6 +478,8 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
         </div>
       </>}
 
+      {/* Not part of any tab: pinned to the bottom of the panel, under a rule. */}
+      <div style={{ borderTop: "1px solid var(--rule)", margin: "auto -10px 0", padding: "12px 10px 0" }}>
       <details className="apply-box">
         <summary>Copy settings to other reels<span className="muted"> · {applyKeys.length} chosen</span></summary>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="muted" style={{ width: 50 }}>To</span><Seg value={applyScope} onChange={setApplyScope} options={[["source", "Lecture"], ["approved", "Approved"], ["library", "All"]]} /></div>
@@ -492,6 +493,7 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
           {copied.logo && s.settings.logo?.path && <Btn small onClick={async () => { const r = await tryAct("stamp_logo", { candidateIds: stale }, "Adding the logo to the finished files"); if (r) { setCopied(null); go("queue"); } }} title="Lays the logo onto the finished files without rendering them again. Files that have it already are skipped; a logo already there is not moved.">Only add the logo (faster)</Btn>}
         </div>}
       </details>
+      </div>
     </>
   );
 });

@@ -488,11 +488,10 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
           {[["music", "Music + level"], ["loudness", "Loudness"], ["style", "Captions template"], ["hookStyle", "Title template"], ["captionPct", "Caption position"], ["crop", "Crop"], ["intro", "Teaser on/off + transition"], ["logo", "Logo on/off + place"], ["endCard", "End card on/off"], ["formats", "Render formats"]].map(([k, l]) => <Check key={k} label={l} checked={applyKeys.includes(k)} onChange={(on) => setApplyKeys(on ? [...applyKeys, k] : applyKeys.filter((x) => x !== k))} />)}
         </div>
-        <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const ids = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (ids) { setCopied({ ids, logo: applyKeys.includes("logo") }); tryAct("snapshot", {}, `Copied to ${ids.length} reels`); } }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
+        <Btn small primary style={{ alignSelf: "flex-start" }} disabled={!applyKeys.length} onClick={async () => { const ids = await tryAct("apply_look", { id: c.id, keys: applyKeys, scope: applyScope }); if (ids) { setCopied({ ids }); tryAct("snapshot", {}, `Copied to ${ids.length} reels`); } }}>Copy to {applyScope === "source" ? "this lecture's reels" : applyScope === "approved" ? "all approved reels" : "every reel"}</Btn>
         {stale.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
           <span className="hint" style={{ flexBasis: "100%" }}>{stale.length} of them already have files, which still show the old settings.</span>
           <Btn small onClick={async () => { const r = await tryAct("render", { candidateIds: stale }, `Rendering ${stale.length} reels again`); if (r) { setCopied(null); go("queue"); } }}>Render {stale.length} again</Btn>
-          {copied.logo && s.settings.logo?.path && <Btn small onClick={async () => { const r = await tryAct("stamp_logo", { candidateIds: stale }, "Adding the logo to the finished files"); if (r) { setCopied(null); go("queue"); } }} title="Lays the logo onto the finished files without rendering them again. Files that have it already are skipped; a logo already there is not moved.">Only add the logo (faster)</Btn>}
         </div>}
       </details>
       </div>

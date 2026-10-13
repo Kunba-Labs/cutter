@@ -343,7 +343,7 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
     let res: Result<Transcript, String> = (|| {
         let use_captions = matches!(src.transcript_source.as_str(), "captions" | "both");
         let captions = if use_captions {
-            src.captions_path.clone().or_else(|| src.url.as_ref().and_then(|u| ytdlp::fetch_auto_captions(u, video.parent().unwrap(), lang.as_deref().or(src.language.as_deref()).unwrap_or("nl")).map(|p| p.display().to_string())))
+            src.captions_path.clone().or_else(|| src.url.as_ref().and_then(|u| ytdlp::fetch_auto_captions(u, Path::new(&src.folder), lang.as_deref().or(src.language.as_deref()).unwrap_or("nl")).map(|p| p.display().to_string())))
         } else {
             None
         };
@@ -358,7 +358,7 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
             return Ok(Transcript { source_id: src.id.clone(), engine: "captions".into(), language, segments, created_at: now() });
         }
         let jid = job.id.clone();
-        let attempt = |model: &str| whisper::transcribe(&video, model, lang.as_deref(), &s.glossary, src.duration.unwrap_or(0.0), |p, m| lib.job_progress(&jid, p, &format!("{model} · {m}")), |pid| lib.register_child(&jid, pid));
+        let attempt = |model: &str| whisper::transcribe(&video, Path::new(&src.folder), model, lang.as_deref(), &s.glossary, src.duration.unwrap_or(0.0), |p, m| lib.job_progress(&jid, p, &format!("{model} · {m}")), |pid| lib.register_child(&jid, pid));
         let t = match attempt(&s.whisper_model) {
             Ok(t) => t,
             Err(e) if whisper::is_oom(&e) && !s.whisper_fallback.is_empty() => {

@@ -729,6 +729,10 @@ impl Library {
                 src.lang_override = if lang.is_empty() || lang == "auto" { None } else { Some(lang) };
                 self.save_source(&mut src);
                 if a["retranscribe"].as_bool().unwrap_or(true) && src.video_path.is_some() {
+                    // A transcript already running heard the old language: stop it, or enqueue would reuse it.
+                    for j in self.all::<Job>("jobs").into_iter().filter(|j| j.kind == "transcribe" && j.ref_id == id && j.status == "running") {
+                        self.cancel_job(&j.id);
+                    }
                     self.enqueue("transcribe", &id, &src.title, json!({}));
                 }
                 json!(src)

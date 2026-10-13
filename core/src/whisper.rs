@@ -14,8 +14,7 @@ pub struct Transcribed {
     pub segments: Vec<Segment>,
 }
 
-pub fn transcribe(video: &Path, model: &str, language: Option<&str>, glossary: &[String], duration: f64, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<Transcribed, String> {
-    let dir = video.parent().ok_or("no dir")?;
+pub fn transcribe(video: &Path, dir: &Path, model: &str, language: Option<&str>, glossary: &[String], duration: f64, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<Transcribed, String> {
     let mut cmd = Command::new("mlx_whisper");
     cmd.arg(video)
         .args(["--model", model, "--output-dir"])

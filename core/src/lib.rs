@@ -519,7 +519,19 @@ impl Library {
                     let root = PathBuf::from(self.settings().out_dir);
                     let dir = PathBuf::from(&src.folder);
                     if !src.folder.is_empty() && dir != root && dir.starts_with(&root) && dir.is_dir() {
-                        deleted = std::fs::remove_dir_all(&dir).is_ok();
+                        // Only what we made: an imported original inside the folder stays.
+                        match src.path.as_deref().map(Path::new).filter(|o| o.starts_with(&dir)) {
+                            Some(orig) => {
+                                for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                                    let p = e.path();
+                                    if !orig.starts_with(&p) {
+                                        let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+                                    }
+                                }
+                                deleted = true;
+                            }
+                            None => deleted = std::fs::remove_dir_all(&dir).is_ok(),
+                        }
                     }
                 }
                 let db = self.db.lock();

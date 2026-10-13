@@ -248,7 +248,10 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
             let url = src.url.clone().unwrap();
             lib.job_progress(&job.id, 0.0, "reading metadata");
             let info = ytdlp::info(&url)?;
-            src.title = info["title"].as_str().unwrap_or(&src.title).to_string();
+            // Downloading again keeps a title renamed by hand.
+            if !keep {
+                src.title = info["title"].as_str().unwrap_or(&src.title).to_string();
+            }
             src.channel = info["channel"].as_str().or(info["uploader"].as_str()).map(String::from);
             src.duration = info["duration"].as_f64();
             if src.lang_override.is_none() {

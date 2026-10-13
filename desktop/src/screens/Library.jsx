@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore, tryAct, fileUrl, fmtLong, ago, STAGES, toast } from "../store.js";
-import { Panel, Btn, Dot, Bar, I, Brand, FileMark, useSize, Grip, Menu } from "../ui.jsx";
+import { Panel, Btn, Dot, Bar, I, Brand, FileMark, useSize, Grip, Menu, Text } from "../ui.jsx";
 
 export default function Library({ nav, go, query, setAdding }) {
   const [sz0, setsz0] = useSize("library.left", 220);
@@ -88,7 +88,7 @@ export default function Library({ nav, go, query, setAdding }) {
               const j = jobOf(x.id);
               const n = cands(x.id).length, ok = cands(x.id).filter((c) => c.approved).length;
               return (
-                <div key={x.id} className={`row ${sel?.id === x.id ? "on" : ""}`} style={{ gridTemplateColumns: "48px minmax(0,1fr) 46px 200px 90px 80px" }} onClick={() => go("library", { sourceId: x.id, view: "reels" })} onContextMenu={(e) => { e.preventDefault(); go("library", { sourceId: x.id, view: "reels" }); setMenu({ x: e.clientX, y: e.clientY, src: x }); }} onDoubleClick={() => go(x.stage === "review" || n ? "reels" : "library", { sourceId: x.id, view: n ? "reels" : "transcript" })}>
+                <div key={x.id} className={`row ${sel?.id === x.id ? "on" : ""}`} style={{ gridTemplateColumns: "48px minmax(0,1fr) 46px 200px 90px 80px" }} onClick={() => go("library", { sourceId: x.id, view: "reels" })} onContextMenu={(e) => { e.preventDefault(); go("library", { sourceId: x.id, view: "reels" }); setMenu({ x: e.clientX, y: e.clientY, src: x }); }} onDoubleClick={() => go(n ? "reels" : "library", { sourceId: x.id, view: n ? "reels" : "transcript" })}>
                   {x.thumbPath ? <img className="thumb" src={fileUrl(x.thumbPath)} width={44} height={25} alt="" /> : <span className="thumb" style={{ width: 44, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--muted)" }}>{x.kind === "file" ? <FileMark size={16} /> : <Brand id="youtube" size={16} />}</span>}
                   <span className="ell">{x.title} <span className="muted">· {fmtLong(x.duration)}</span></span>
                   <span>{(x.langOverride || x.language || "auto").toUpperCase()}</span>
@@ -160,7 +160,7 @@ function SourceInfo({ x, s, go }) {
     <>
       <div className="panel-body" style={{ fontSize: 13.5 }}>
         {x.thumbPath && <img src={fileUrl(x.thumbPath)} alt="" style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: 4, background: "var(--head)" }} />}
-        <b style={{ fontSize: 14 }}>{x.title}</b>
+        <Text value={x.title} title="Rename" style={{ fontSize: 14, fontWeight: 700 }} onCommit={(v) => v.trim() && tryAct("update_source", { id: x.id, patch: { title: v.trim() } }, "Renamed")} />
         <div className="kv">
           <span>Channel</span><span className="ell">{x.channel || "—"}</span>
           <span>Source</span><span className="ell">{x.url || x.path}</span>

@@ -234,17 +234,11 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
     }
     let res: Result<(), String> = (|| {
         if let Some(p) = src.path.clone() {
-            // A local file: link it into the folder so every source looks the same.
-            let video = dir.join("source.mp4");
+            // A local file is used where it lies (often a large file on an external disk): no copy.
+            // The player reads it through media:// ranges; an odd container gets a preview below.
+            let video = PathBuf::from(&p);
             if !video.exists() {
-                // A real MP4 with the index first; linking the original as a fallback.
-                let jid = job.id.clone();
-                let dur = ffmpeg::probe(Path::new(&p)).map(|x| x.duration).unwrap_or(0.0);
-                if let Err(e) = ffmpeg::faststart(Path::new(&p), &video, dur, |pr, m| lib.job_progress(&jid, pr, &format!("preparing {m}"))) {
-                    log::warn!("remux of {p} failed ({e}); linking the original");
-                    let _ = std::fs::remove_file(&video);
-                    std::fs::hard_link(&p, &video).or_else(|_| std::fs::copy(&p, &video).map(|_| ())).map_err(|e| format!("copy: {e}"))?;
-                }
+                return Err(format!("{p} is not there (disk unplugged?)"));
             }
             let thumb = dir.join("thumb.jpg");
             let _ = ffmpeg::thumbnail(&video, &thumb);
@@ -299,7 +293,8 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
         let preview = dir.join("preview.mp4");
         let _ = std::fs::remove_file(&preview);
         src.preview_path = None;
-        if probe.vcodec != "h264" || probe.width.max(probe.height) > 1920 || (probe.has_audio && probe.acodec != "aac") {
+        let playable = video.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "mp4" | "m4v" | "mov"));
+        if !playable || probe.vcodec != "h264" || probe.width.max(probe.height) > 1920 || (probe.has_audio && probe.acodec != "aac") {
             let jid = job.id.clone();
             ffmpeg::proxy(&video, &preview, probe.duration, |p, m| lib.job_progress(&jid, p, &format!("preview copy {m}")))?;
             src.preview_path = Some(preview.display().to_string());

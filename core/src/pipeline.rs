@@ -339,7 +339,9 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
     set_stage(lib, &mut src, "transcribing", None);
     // The override wins; otherwise YouTube's declared language is a better prior
     // than whisper's 30-second guess (a Dutch lecture opening with Qur'an comes out "ar").
-    let lang = src.lang_override.clone().or_else(|| src.language.clone().filter(|l| l.len() == 2));
+    // A local file has no declared language: its `language` is only whisper's last guess, so
+    // never a prior; whisper listens to the middle of the lecture instead.
+    let mut lang = src.lang_override.clone().or_else(|| src.language.clone().filter(|l| l.len() == 2 && src.url.is_some()));
     let res: Result<Transcript, String> = (|| {
         let use_captions = matches!(src.transcript_source.as_str(), "captions" | "both");
         let captions = if use_captions {
@@ -358,6 +360,13 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
             return Ok(Transcript { source_id: src.id.clone(), engine: "captions".into(), language, segments, created_at: now() });
         }
         let jid = job.id.clone();
+        if lang.is_none() {
+            lib.job_progress(&jid, 0.0, "listening for the language");
+            lang = whisper::detect_language(&video, Path::new(&src.folder), &s.whisper_model, src.duration.unwrap_or(0.0));
+            if let Some(l) = &lang {
+                lib.job_log(&jid, &format!("language from the middle of the lecture: {l}"));
+            }
+        }
         let attempt = |model: &str| whisper::transcribe(&video, Path::new(&src.folder), model, lang.as_deref(), &s.glossary, src.duration.unwrap_or(0.0), |p, m| lib.job_progress(&jid, p, &format!("{model} · {m}")), |pid| lib.register_child(&jid, pid));
         let t = match attempt(&s.whisper_model) {
             Ok(t) => t,

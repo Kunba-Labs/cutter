@@ -64,6 +64,31 @@ pub fn transcribe(video: &Path, dir: &Path, model: &str, language: Option<&str>,
     Ok(parse(&v))
 }
 
+/// Whisper decides the language on the first 30 s, and a lecture opens with Arabic (khutbat
+/// al-haja, Qur'an) whatever it is taught in. So it listens to 3 × 10 s from the body instead:
+/// at 30, 50 and 70 % of the lecture. None for a short file (whisper's own guess is then fine) or on
+/// any error.
+// ponytail: not registered as a child, a cancel waits the few seconds this takes.
+pub fn detect_language(video: &Path, dir: &Path, model: &str, duration: f64) -> Option<String> {
+    if duration < 120.0 {
+        return None;
+    }
+    let wav = dir.join("lang-sample.wav");
+    let mut ff = Command::new(crate::tools::ffmpeg_bin());
+    ff.args(["-hide_banner", "-loglevel", "error", "-y"]);
+    for f in [0.3, 0.5, 0.7] {
+        ff.args(["-ss", &format!("{:.1}", duration * f), "-t", "10", "-i"]).arg(video);
+    }
+    ff.args(["-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1", "-ar", "16000", "-ac", "1"]).arg(&wav);
+    crate::tools::run(&mut ff).ok()?;
+    let out = Command::new("mlx_whisper").arg(&wav).args(["--model", model, "--output-dir"]).arg(dir).args(["--output-name", "lang-sample", "--output-format", "json"]).stdin(Stdio::null()).output();
+    let json = dir.join("lang-sample.json");
+    let lang = out.ok().filter(|o| o.status.success()).and_then(|_| std::fs::read_to_string(&json).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["language"].as_str().map(str::to_string)).filter(|l| !l.is_empty());
+    let _ = std::fs::remove_file(&wav);
+    let _ = std::fs::remove_file(&json);
+    lang
+}
+
 pub fn parse(v: &Value) -> Transcribed {
     let language = v["language"].as_str().unwrap_or("").to_string();
     let segments = v["segments"]

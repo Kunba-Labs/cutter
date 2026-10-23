@@ -175,7 +175,13 @@ pub fn plan(s: &Settings, c: &Candidate, src_duration: Option<f64>, format: &str
     let clean = format == "clean";
     let (w, h, _) = ffmpeg::format_spec(format);
     let intro = match (c.punch_start, c.punch_end) {
-        (Some(a), Some(b)) if !clean && c.intro_on.unwrap_or(s.intro) && b - a >= 0.8 => Some(((a - 0.1).max(0.0), (b + 0.15).min(dur), c.transition.clone().unwrap_or_else(|| s.transition.clone()))),
+        (Some(a), Some(b)) if !clean && c.intro_on.unwrap_or(s.intro) && b - a >= 0.8 => {
+            let tr = c.transition.clone().unwrap_or_else(|| s.transition.clone());
+            // The transition overlaps the teaser's last moments: it runs on past the punchline for that
+            // long, so the crossfade never fades out its last word (whisper's word ends are tight too).
+            let tail = 0.2 + ffmpeg::transition(&tr).1;
+            Some(((a - 0.15).max(0.0), (b + tail).min(dur), tr))
+        }
         _ => None,
     };
     let card = (!clean && c.end_card_on.unwrap_or(s.end_card.enabled)).then(|| s.end_card.paths[ffmpeg::aspect_key(w, h)].as_str().map(PathBuf::from)).flatten().filter(|p| p.exists()).map(|p| (p, s.end_card.seconds.clamp(0.5, 10.0)));

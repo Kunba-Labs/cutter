@@ -1403,6 +1403,9 @@ impl Library {
                         st.caption_templates = model::caption_templates();
                     }
                     self.save_settings(&st);
+                    // The workers read their own switch: a patch of queuePaused moves it too, or the queue
+                    // says "running" and nothing starts.
+                    self.paused.store(st.queue_paused, std::sync::atomic::Ordering::SeqCst);
                     let _ = std::fs::create_dir_all(&st.out_dir);
                 }
                 json!(st)

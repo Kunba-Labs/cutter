@@ -243,7 +243,7 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 22px; 
 /* The import popup: floats over the bottom right, the status bar stays visible under it. */
 .import-pop { position: fixed; right: 12px; bottom: 30px; width: 400px; background: var(--panel); border: 1px solid var(--raised); border-radius: 6px; box-shadow: 0 16px 48px rgba(0,0,0,.55); display: flex; flex-direction: column; overflow: hidden; z-index: 15; }
 .import-pop .panel-head { height: 30px; }
-/* Minimised it sits in the status bar's left end, over nothing a click needs. */
-.import-pop.min { flex-direction: row; align-items: center; gap: 8px; width: 340px; height: 22px; right: auto; left: 12px; bottom: 11px; box-shadow: none; border-radius: 4px; padding: 0 8px; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; text-align: left; }
+/* Minimised it is the status bar's first item, beside the running job's label. */
+.import-pop.min { position: static; flex-direction: row; align-items: center; gap: 8px; width: 300px; flex-shrink: 0; height: 20px; box-shadow: none; border-radius: 4px; padding: 0 8px; font: inherit; font-size: 12px; color: var(--text); cursor: pointer; text-align: left; }
 .import-steps { display: flex; gap: 14px; font-size: 13px; }
 .import-steps > span { display: flex; align-items: center; gap: 5px; }

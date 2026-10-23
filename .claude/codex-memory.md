@@ -14,7 +14,10 @@
 - Layout: app padding and main/column gaps are 10px; panels have 6px corners, 30px header strips, and body padding of 8px 10px. Standard controls are 30px tall with 4px corners. Spacing and sizes are CSS literals, not shared tokens.
 - `Btn` supplies hover/disabled styling; `.input:focus` uses the accent border.
 - The words strip uses flex wrapping, a 3px gap, and 12.5px/1.4 text.
+- The app has a persistent 24px status bar: current job on the left, queue meter on the right. The desktop window has a 1100px minimum width.
 - Transcript editing dispatch handlers live in `core/src/lib.rs`. `edit_segment` rejects empty lines, preserves timings when the word count matches, and otherwise distributes words evenly over the segment. `edit_word` permits replacement with multiple words or deletion with empty text.
+- Templates are stored in the `templates` table. A source’s `template_id` selects the look for new reels; `settings.default_template` selects the template for new sources. `set_source_template` also applies the look to existing, undiscarded reels.
+- Source import and reel finding run as queued jobs. `enqueue` deduplicates matching active jobs by kind, reference and arguments; cancellation allows a replacement to queue.
 - Tauri production configuration is `desktop/src-tauri/tauri.conf.json`; development overrides are in `tauri.dev.conf.json`.
 - Bundling targets macOS `app` and `dmg`, minimum macOS 13. Production and development use separate identities and `icons/` versus `icons-dev/`.
 - Both icon configurations reference `32x32.png`, `128x128.png`, `128x128@2x.png`, and `icon.icns`.

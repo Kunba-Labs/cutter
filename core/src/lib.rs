@@ -824,6 +824,14 @@ impl Library {
                 let mut v = serde_json::to_value(&tpl).unwrap();
                 merge(&mut v, &a["patch"]);
                 tpl = serde_json::from_value(v).map_err(|e| e.to_string())?;
+                // The name is how "save as template" finds the one to replace: one of each.
+                tpl.name = tpl.name.trim().to_string();
+                if tpl.name.is_empty() {
+                    return Err("A template needs a name".into());
+                }
+                if self.all::<Template>("templates").iter().any(|t| t.id != id && t.name == tpl.name) {
+                    return Err(format!("There is already a template called {}", tpl.name));
+                }
                 self.put("templates", &id, &tpl.created_at.clone(), &tpl);
                 self.changed();
                 json!(tpl)
@@ -1548,6 +1556,10 @@ mod tests {
         let c = lib.dispatch("add_candidate", json!({ "sourceId": a, "start": 0.0, "end": 30.0 })).unwrap()["id"].as_str().unwrap().to_string();
         lib.dispatch("update_candidate", json!({ "id": c, "patch": { "style": "Punch", "music": "none", "targets": ["none"], "title": "kept" } })).unwrap();
         let tpl = lib.dispatch("save_template", json!({ "id": c, "name": "Tafsir", "autoApproveScore": 8 })).unwrap()["id"].as_str().unwrap().to_string();
+        // Names stay unique: saving under one replaces it, renaming onto one is refused.
+        let other = lib.dispatch("save_template", json!({ "id": c, "name": "Other" })).unwrap()["id"].as_str().unwrap().to_string();
+        assert!(lib.dispatch("update_template", json!({ "id": other, "patch": { "name": " Tafsir " } })).is_err());
+        assert_eq!(lib.dispatch("save_template", json!({ "id": c, "name": "Tafsir", "autoApproveScore": 8 })).unwrap()["id"], tpl.as_str());
         // The default template rides on a new lecture: its reels take the look and post nowhere.
         lib.dispatch("settings", json!({ "patch": { "defaultTemplate": tpl } })).unwrap();
         let src: Source = serde_json::from_value(lib.dispatch("add_source", json!({ "url": "https://www.youtube.com/watch?v=b" })).unwrap()).unwrap();

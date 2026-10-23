@@ -208,13 +208,22 @@ pub fn make_cover(lib: &Library, c: &Candidate, format: &str) -> Result<PathBuf,
 
 /// A job's copy of the lecture is as old as the job: what the person changed meanwhile (the import
 /// popup sets template and language while it downloads) is taken from the row as it is now.
-fn set_stage(lib: &Library, src: &mut Source, stage: &str, error: Option<String>) {
+fn fresh(lib: &Library, src: &mut Source) {
     if let Some(now) = lib.get::<Source>("sources", &src.id) {
         (src.template_id, src.title, src.auto_approve_score, src.auto_detect, src.lang_override) = (now.template_id, now.title, now.auto_approve_score, now.auto_detect, now.lang_override);
     }
+}
+
+/// Every save from a worker: never over what the person changed meanwhile.
+fn save(lib: &Library, src: &mut Source) {
+    fresh(lib, src);
+    lib.save_source(src);
+}
+
+fn set_stage(lib: &Library, src: &mut Source, stage: &str, error: Option<String>) {
     src.stage = stage.into();
     src.error = error;
-    lib.save_source(src);
+    save(lib, src);
 }
 
 fn fail(lib: &Library, id: &str, e: String) -> Result<Value, String> {
@@ -253,6 +262,8 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
             let url = src.url.clone().unwrap();
             lib.job_progress(&job.id, 0.0, "reading metadata");
             let info = ytdlp::info(&url)?;
+            // Before the title below: it is the one field this save means to change.
+            fresh(lib, &mut src);
             // Downloading again keeps a title renamed by hand.
             if !keep {
                 src.title = info["title"].as_str().unwrap_or(&src.title).to_string();
@@ -314,7 +325,7 @@ fn download(lib: &Library, job: &Job) -> Result<Value, String> {
             Ok(()) => {
                 let _ = std::fs::remove_file(&prev);
                 src.stage = stage_before;
-                lib.save_source(&mut src);
+                save(lib, &mut src);
                 // Every ticked reel is rendered from the new file, files from the old one included.
                 let n = lib.dispatch("render", json!({ "sourceId": src.id })).ok().and_then(|v| v.as_array().map(|a| a.len())).unwrap_or(0);
                 return Ok(json!({ "message": format!("{}p {} · edits kept · {n} reels rendering again", src.meta["height"], src.meta["vcodec"].as_str().unwrap_or("")) }));
@@ -444,7 +455,9 @@ fn detect(lib: &Library, job: &Job) -> Result<Value, String> {
         }
         // Before the delete below could take the template away; put (not save_candidate) keeps it "untouched".
         lib.take_look(&mut c);
-        if src.auto_approve_score > 0 && c.score >= src.auto_approve_score {
+        // The score as it is now: a template picked while the brain ran brings its own.
+        let approve_at = lib.get::<Source>("sources", &src.id).map_or(src.auto_approve_score, |x| x.auto_approve_score);
+        if approve_at > 0 && c.score >= approve_at {
             c.approved = true;
         }
         lib.put("candidates", &c.id, &format!("{}-{:08.2}", c.source_id, c.start), &c);

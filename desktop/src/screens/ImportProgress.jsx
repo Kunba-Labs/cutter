@@ -4,6 +4,8 @@ import { Btn, Bar, Dot, Field, I } from "../ui.jsx";
 const LANG_NAME = Object.fromEntries(LANGS);
 const STEPS = ["Download", "Transcribe", "Find reels", "Ready"];
 const STEP_OF = { added: 0, downloading: 0, downloaded: 0, transcribing: 1, transcribed: 1, detecting: 2, review: 3, done: 3 };
+// A failed lecture says only "failed": the step is the one whose job failed last.
+const JOB_STEP = { download: 0, redownload: 0, transcribe: 1, polish: 1, detect: 2 };
 
 /* One line on what a template does to a reel, for the pickers. */
 export function templateSummary(t, s) {
@@ -17,7 +19,7 @@ export function templateSummary(t, s) {
 }
 
 /* A lecture on its way in: where it is, the language heard (override it), the template its reels get.
-   Floats bottom right; minimised it is one line, a click opens it again. */
+   Floats bottom right; minimised it is one line in the status bar, a click opens it again. */
 export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }) {
   const src = s.sources.find((x) => x.id === sourceId);
   if (!src) return null;
@@ -25,11 +27,12 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
   const job = jobs.find((j) => j.status === "running") || jobs[0];
   const reels = s.candidates.filter((c) => c.sourceId === src.id && !c.discarded).length;
   // Without "find reels" a transcript is the end of the road.
-  const step = src.stage === "transcribed" && !jobs.length ? 3 : STEP_OF[src.stage] ?? 0;
   const failed = src.stage === "failed";
+  const lastFail = failed && s.jobs.filter((j) => j.refId === src.id && j.status === "failed" && j.kind in JOB_STEP).sort((a, b) => (a.finishedAt < b.finishedAt ? 1 : -1))[0];
+  const step = failed ? JOB_STEP[lastFail?.kind] ?? 0 : src.stage === "transcribed" && !jobs.length ? 3 : STEP_OF[src.stage] ?? 0;
   const ready = step === 3 && !jobs.length;
   const pct = ready ? 1 : (step + (job?.status === "running" ? job.progress || 0 : 0)) / 3;
-  const line = failed ? "Failed" : ready ? `Ready · ${reels} reel${reels === 1 ? "" : "s"}` : `${STEPS[step]}${job?.status === "running" ? ` ${Math.round((job.progress || 0) * 100)}%` : ""}`;
+  const line = failed ? `${STEPS[step]} failed` : ready ? `Ready · ${reels} reel${reels === 1 ? "" : "s"}` : `${STEPS[step]}${job?.status === "running" ? ` ${Math.round((job.progress || 0) * 100)}%` : ""}`;
 
   if (min) return (
     <button type="button" className="import-pop min" onClick={() => setMin(false)} title="Show the import">
@@ -44,7 +47,7 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
       <div className="panel-head"><span className="grow ell">{src.title}</span><Btn small icon onClick={() => setMin(true)} aria-label="Minimise" title="Minimise">—</Btn><Btn small icon onClick={onClose} aria-label="Close">{I.x}</Btn></div>
       <div className="panel-body" style={{ gap: 10, padding: 12 }}>
         <div className="import-steps">
-          {STEPS.map((l, i) => <span key={l} className={i < step || (ready && i === 3) ? "mint" : i === step && !failed ? "pink" : "muted"}><Dot c={i < step || ready ? "mint" : i === step ? (failed ? "coral" : "pink") : ""} />{l}</span>)}
+          {STEPS.map((l, i) => <span key={l} className={i < step || (ready && i === 3) ? "mint" : i === step ? (failed ? "coral" : "pink") : "muted"}><Dot c={i < step || ready ? "mint" : i === step ? (failed ? "coral" : "pink") : ""} />{l}</span>)}
         </div>
         <Bar v={pct} mint={ready} />
         <span className={`ell ${failed ? "coral" : "muted"}`} style={{ fontSize: 13 }}>{failed ? src.error : ready ? `${reels} reel${reels === 1 ? "" : "s"} found${src.autoApproveScore > 0 ? `, scoring ${src.autoApproveScore}+ approved and rendering` : ""}.` : job?.message || job?.label || "Waiting in the queue"}</span>

@@ -23,7 +23,8 @@ export function templateSummary(t, s) {
 export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }) {
   const src = s.sources.find((x) => x.id === sourceId);
   if (!src) return null;
-  const jobs = s.jobs.filter((j) => j.refId === src.id && (j.status === "running" || j.status === "queued"));
+  // Only the import's own jobs: renders and covers of its reels come after "ready".
+  const jobs = s.jobs.filter((j) => j.refId === src.id && j.kind in JOB_STEP && (j.status === "running" || j.status === "queued"));
   const job = jobs.find((j) => j.status === "running") || jobs[0];
   const reels = s.candidates.filter((c) => c.sourceId === src.id && !c.discarded).length;
   // Without "find reels" a transcript is the end of the road.
@@ -31,8 +32,8 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
   const lastFail = failed && s.jobs.filter((j) => j.refId === src.id && j.status === "failed" && j.kind in JOB_STEP).sort((a, b) => (a.finishedAt < b.finishedAt ? 1 : -1))[0];
   const step = failed ? JOB_STEP[lastFail?.kind] ?? 0 : src.stage === "transcribed" && !jobs.length ? 3 : STEP_OF[src.stage] ?? 0;
   const ready = step === 3 && !jobs.length;
-  const pct = ready ? 1 : (step + (job?.status === "running" ? job.progress || 0 : 0)) / 3;
-  const line = failed ? `${STEPS[step]} failed` : ready ? `Ready · ${reels} reel${reels === 1 ? "" : "s"}` : `${STEPS[step]}${job?.status === "running" ? ` ${Math.round((job.progress || 0) * 100)}%` : ""}`;
+  const pct = ready ? 1 : Math.min(1, (Math.min(step, 2) + (job?.status === "running" ? job.progress || 0 : 0)) / 3);
+  const line = failed ? `${STEPS[step]} failed` : ready || step === 3 ? `Ready · ${reels} reel${reels === 1 ? "" : "s"}` : `${STEPS[step]}${job?.status === "running" ? ` ${Math.round((job.progress || 0) * 100)}%` : ""}`;
 
   if (min) return (
     <button type="button" className="import-pop min" onClick={() => setMin(false)} title="Show the import">
@@ -63,7 +64,7 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
             </select>
           </Field>
         </div>
-        {(() => { const t = (s.templates || []).find((x) => x.id === src.templateId); return <span className="hint">{t ? templateSummary(t, s) : (s.templates || []).length ? "Reels take the last copied settings." : "Save a reel's settings as a template under Reels to start new lectures from it."}</span>; })()}
+        {(() => { const t = (s.templates || []).find((x) => x.id === src.templateId); return <span className="hint">{t ? templateSummary(t, s) : (s.templates || []).length ? "New reels take the last copied settings; reels already found keep theirs." : "Save a reel's settings as a template under Reels to start new lectures from it."}</span>; })()}
         {src.videoPath && <span className="hint">Changing the language transcribes the lecture again.</span>}
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
           {(reels > 0 || ready) && <Btn small primary onClick={() => { go("reels", { sourceId: src.id }); setMin(true); }}>Open reels</Btn>}

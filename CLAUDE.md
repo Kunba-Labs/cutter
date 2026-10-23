@@ -163,6 +163,9 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - A GUI app gets launchd's PATH: `tools::inherit_login_path()` runs first in both binaries.
 - yt-dlp: `--sub-langs xx.*` gets 429'd; ask for `xx,xx-orig,xx-xx`. `--dump-single-json` line
   is the last `{` line of stdout regardless of exit code.
+- Whisper never reads the video: `whisper::transcribe` first lays the sound on the timeline
+  (`aresample=async=1:first_pts=0`, 16 kHz wav). Phone recordings start their sound late and overlap
+  it; read raw, word times drifted 0.5 → 2 s early over 23 min (biic.mp4).
 - mlx_whisper prints `[mm:ss.mmm --> mm:ss.mmm]` per segment in verbose mode — that is the progress.
 - `claude -p` reads the prompt from stdin (argv has a size limit); `--output-format json` wraps
   the answer in `{"result": …}`. A raw string holding `"#` needs `r##"…"##`.

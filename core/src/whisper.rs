@@ -14,9 +14,30 @@ pub struct Transcribed {
     pub segments: Vec<Segment>,
 }
 
-pub fn transcribe(video: &Path, dir: &Path, model: &str, language: Option<&str>, glossary: &[String], duration: f64, mut on_progress: impl FnMut(f64, &str), on_spawn: impl FnOnce(u32)) -> Result<Transcribed, String> {
+pub fn transcribe(video: &Path, dir: &Path, model: &str, language: Option<&str>, glossary: &[String], duration: f64, mut on_progress: impl FnMut(f64, &str), on_spawn: impl Fn(u32)) -> Result<Transcribed, String> {
+    // Whisper decodes the sound sample by sample and ignores its timestamps. A phone recording's
+    // sound starts late and overlaps itself (biic.mp4: 0.48 s in, 2 s short by the end), so every
+    // word time drifts from the picture. Laid on the timeline first (silence where it starts late,
+    // gaps and overlaps evened out), the times are the video's.
+    on_progress(0.0, "reading the sound");
+    let wav = dir.join("whisper-audio.wav");
+    let mut ff = Command::new(crate::tools::ffmpeg_bin());
+    ff.args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"]).arg(video).args(["-vn", "-af", "aresample=async=1:first_pts=0", "-ac", "1", "-ar", "16000"]).arg(&wav).stdout(Stdio::null()).stderr(Stdio::piped());
+    let child = ff.spawn().map_err(|e| format!("ffmpeg: {e}"))?;
+    on_spawn(child.id());
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let _ = std::fs::remove_file(&wav);
+        return Err(format!("ffmpeg (sound for whisper): {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("")));
+    }
+    let res = run_whisper(&wav, dir, model, language, glossary, duration, on_progress, on_spawn);
+    let _ = std::fs::remove_file(&wav);
+    res
+}
+
+fn run_whisper(audio: &Path, dir: &Path, model: &str, language: Option<&str>, glossary: &[String], duration: f64, mut on_progress: impl FnMut(f64, &str), on_spawn: impl Fn(u32)) -> Result<Transcribed, String> {
     let mut cmd = Command::new("mlx_whisper");
-    cmd.arg(video)
+    cmd.arg(audio)
         .args(["--model", model, "--output-dir"])
         .arg(dir)
         .args(["--output-name", "transcript", "--output-format", "json", "--word-timestamps", "True", "--verbose", "True", "--condition-on-previous-text", "False"]);

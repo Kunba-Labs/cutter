@@ -823,7 +823,10 @@ impl Library {
                 let mut tpl: Template = self.get("templates", &id).ok_or("no such template")?;
                 let mut v = serde_json::to_value(&tpl).unwrap();
                 merge(&mut v, &a["patch"]);
+                // id and createdAt are the row's key and order: never patched.
+                let (keep_id, keep_at) = (tpl.id.clone(), tpl.created_at.clone());
                 tpl = serde_json::from_value(v).map_err(|e| e.to_string())?;
+                (tpl.id, tpl.created_at) = (keep_id, keep_at);
                 // The name is how "save as template" finds the one to replace: one of each.
                 tpl.name = tpl.name.trim().to_string();
                 if tpl.name.is_empty() {
@@ -1559,6 +1562,8 @@ mod tests {
         // Names stay unique: saving under one replaces it, renaming onto one is refused.
         let other = lib.dispatch("save_template", json!({ "id": c, "name": "Other" })).unwrap()["id"].as_str().unwrap().to_string();
         assert!(lib.dispatch("update_template", json!({ "id": other, "patch": { "name": " Tafsir " } })).is_err());
+        // id and createdAt are the key: a patch cannot move them.
+        assert_eq!(lib.dispatch("update_template", json!({ "id": other, "patch": { "id": "x", "name": "Renamed" } })).unwrap()["id"], other.as_str());
         assert_eq!(lib.dispatch("save_template", json!({ "id": c, "name": "Tafsir", "autoApproveScore": 8 })).unwrap()["id"], tpl.as_str());
         // The default template rides on a new lecture: its reels take the look and post nowhere.
         lib.dispatch("settings", json!({ "patch": { "defaultTemplate": tpl } })).unwrap();

@@ -18,6 +18,8 @@
 - Transcript editing dispatch handlers live in `core/src/lib.rs`. `edit_segment` rejects empty lines, preserves timings when the word count matches, and otherwise distributes words evenly over the segment. `edit_word` permits replacement with multiple words or deletion with empty text.
 - Templates are stored in the `templates` table. A source’s `template_id` selects the look for new reels; `settings.default_template` selects the template for new sources. `set_source_template` also applies the look to existing, undiscarded reels.
 - Source import and reel finding run as queued jobs. `enqueue` deduplicates matching active jobs by kind, reference and arguments; cancellation allows a replacement to queue.
+- `set_language` stores a source language override and queues transcription again when the source has a video. It cancels a running transcription first.
+- Render records use `candidate_id` and `status`; completed renders have status `done`. Render jobs read the candidate when they start.
 - Tauri production configuration is `desktop/src-tauri/tauri.conf.json`; development overrides are in `tauri.dev.conf.json`.
 - Bundling targets macOS `app` and `dmg`, minimum macOS 13. Production and development use separate identities and `icons/` versus `icons-dev/`.
 - Both icon configurations reference `32x32.png`, `128x128.png`, `128x128@2x.png`, and `icon.icns`.

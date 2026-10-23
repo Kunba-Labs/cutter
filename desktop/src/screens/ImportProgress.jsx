@@ -41,7 +41,6 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
   );
 
   const heard = src.language && LANG_NAME[src.language];
-  const transcribed = step >= 1 && src.stage !== "transcribing";
   return (
     <div className="import-pop">
       <div className="panel-head"><span className="grow ell">{src.title}</span><Btn small icon onClick={() => setMin(true)} aria-label="Minimise" title="Minimise">—</Btn><Btn small icon onClick={onClose} aria-label="Close">{I.x}</Btn></div>
@@ -53,19 +52,19 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
         <span className={`ell ${failed ? "coral" : "muted"}`} style={{ fontSize: 13 }}>{failed ? src.error : ready ? `${reels} reel${reels === 1 ? "" : "s"} found${src.autoApproveScore > 0 ? `, scoring ${src.autoApproveScore}+ approved and rendering` : ""}.` : job?.message || job?.label || "Waiting in the queue"}</span>
         <div className="grid2">
           <Field label={src.langOverride ? "Language · set by you" : heard ? `Language · heard ${heard}` : "Language · not heard yet"}>
-            <select className="input" value={src.langOverride || "auto"} onChange={(e) => tryAct("set_language", { id: src.id, language: e.target.value }, transcribed ? "Transcribing again" : "Language set")}>
+            <select className="input" value={src.langOverride || "auto"} onChange={(e) => tryAct("set_language", { id: src.id, language: e.target.value }, src.videoPath ? "Transcribing again" : "Language set")}>
               {LANGS.map(([v, l]) => <option key={v} value={v}>{v === "auto" && heard ? `Auto · ${heard}` : l}</option>)}
             </select>
           </Field>
           <Field label="Template">
-            <select className="input" value={src.templateId || ""} onChange={async (e) => { const ids = await tryAct("set_source_template", { id: src.id, templateId: e.target.value || null }); const stale = (ids || []).filter((id) => s.renders.some((r) => r.candidateId === id && r.status === "done")); if (stale.length) tryAct("render", { candidateIds: stale }, `Rendering ${stale.length} reels again`); }}>
+            <select className="input" value={src.templateId || ""} onChange={async (e) => { const ids = await tryAct("set_source_template", { id: src.id, templateId: e.target.value || null }); const stale = (ids || []).filter((id) => s.renders.some((r) => r.candidateId === id && r.status === "done") || s.jobs.some((j) => j.kind === "render" && j.refId === id && (j.status === "running" || j.status === "queued"))); if (stale.length) tryAct("render", { candidateIds: stale }, `Rendering ${stale.length} reels again`); }}>
               <option value="">No template</option>
               {(s.templates || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </Field>
         </div>
         {(() => { const t = (s.templates || []).find((x) => x.id === src.templateId); return <span className="hint">{t ? templateSummary(t, s) : (s.templates || []).length ? "Reels take the last copied settings." : "Save a reel's settings as a template under Reels to start new lectures from it."}</span>; })()}
-        {transcribed && !src.langOverride && <span className="hint">Changing the language transcribes the lecture again.</span>}
+        {src.videoPath && <span className="hint">Changing the language transcribes the lecture again.</span>}
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
           {(reels > 0 || ready) && <Btn small primary onClick={() => { go("reels", { sourceId: src.id }); setMin(true); }}>Open reels</Btn>}
         </div>

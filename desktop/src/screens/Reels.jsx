@@ -494,7 +494,30 @@ const ReelDetails = memo(function ReelDetails({ c, s, sourceId, go, tab, hookTpl
           <Btn small onClick={async () => { const r = await tryAct("render", { candidateIds: stale }, `Rendering ${stale.length} reels again`); if (r) { setCopied(null); go("queue"); } }}>Render {stale.length} again</Btn>
         </div>}
       </details>
+      <SaveTemplate c={c} s={s} />
       </div>
     </>
   );
 });
+
+/* This reel's whole look and its "Post to" as a named template; the lecture's own template name is
+   offered, so saving again updates it. */
+function SaveTemplate({ c, s }) {
+  const src = s.sources.find((x) => x.id === c.sourceId);
+  const current = (s.templates || []).find((t) => t.id === src?.templateId);
+  const [name, setName] = useState("");
+  useEffect(() => setName(current?.name || ""), [c.id, current?.name]);
+  const replaces = (s.templates || []).some((t) => t.name === name.trim());
+  const save = () => name.trim() && tryAct("save_template", { id: c.id, name: name.trim() }, replaces ? `Updated ${name.trim()}` : `Saved ${name.trim()}`);
+  return (
+    <details className="apply-box">
+      <summary>Save as template{current && <span className="muted"> · lecture uses {current.name}</span>}</summary>
+      <span className="hint">Captions, title, position, crop, teaser, logo, end card, music, loudness, formats and Post to. New lectures can start from it.</span>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input className="input grow" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} placeholder="Template name" list="tpl-names" />
+        <datalist id="tpl-names">{(s.templates || []).map((t) => <option key={t.id} value={t.name} />)}</datalist>
+        <Btn small primary disabled={!name.trim()} onClick={save}>{replaces ? "Update" : "Save"}</Btn>
+      </div>
+    </details>
+  );
+}

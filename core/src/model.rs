@@ -34,9 +34,25 @@ pub struct Source {
     pub auto_detect: bool,
     pub auto_approve_score: i64,
     pub auto_schedule: bool,
+    /// The template new reels of this lecture take (look + where they post), instead of `look_from`.
+    #[serde(default)]
+    pub template_id: Option<String>,
     pub meta: Value,
     pub added_at: String,
     pub updated_at: String,
+}
+
+/// A named set of reel settings: `reel` holds the look (every `LOOK_KEYS` field) and `targets`
+/// (empty = every target, ["none"] = post nowhere), copied onto each new reel of a lecture using it.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Template {
+    pub id: String,
+    pub name: String,
+    pub reel: Candidate,
+    /// Reels scoring this or more are approved and rendered on their own. 0 = hold for review.
+    pub auto_approve_score: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -531,6 +547,8 @@ pub struct Settings {
     /// (the reel last copied from, or whose ticks last changed).
     pub look_keys: Vec<String>,
     pub look_from: Option<String>,
+    /// The template a new lecture gets unless the add says otherwise.
+    pub default_template: Option<String>,
     pub channel_name: String,
     pub glossary: Vec<String>,
     pub youtube: YoutubeAuth,
@@ -576,6 +594,7 @@ impl Default for Settings {
             formats: vec!["shorts".into(), "reels".into(), "tiktok".into()],
             look_keys: vec!["style".into(), "hookStyle".into(), "captionPct".into()],
             look_from: None,
+            default_template: None,
             channel_name: String::new(),
             glossary: vec!["Allah".into(), "salawat".into(), "dhikr".into(), "tafsir".into(), "sabr".into()],
             youtube: YoutubeAuth::default(),

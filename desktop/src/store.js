@@ -89,7 +89,7 @@ export async function tryAct(action, args, okMsg) {
 }
 
 // What ⌘Z undid, in words. Anything not named here reads as its action with spaces.
-const UNDO_NAMES = { update_candidate: "reel edit", approve: "tick", approve_above: "ticks", discard: "discard", edit_word: "word correction", edit_segment: "line correction", apply_look: "copied settings", settings: "settings change", add_candidate: "new reel", clear_reels: "start over (the files stay deleted)", remove_source: "removed lecture" };
+const UNDO_NAMES = { update_candidate: "reel edit", approve: "tick", approve_above: "ticks", discard: "discard", edit_word: "word correction", edit_segment: "line correction", apply_look: "copied settings", save_template: "saved template", update_template: "template change", delete_template: "removed template", set_source_template: "template on a lecture", settings: "settings change", add_candidate: "new reel", clear_reels: "start over (the files stay deleted)", remove_source: "removed lecture" };
 export async function undo(redo = false) {
   const r = await tryAct(redo ? "redo" : "undo", {});
   // Screens holding their own copy of a record (the Reels transcript) reload on this.

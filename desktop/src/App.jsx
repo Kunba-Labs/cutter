@@ -11,6 +11,7 @@ import Posters from "./screens/Posters.jsx";
 import Settings from "./screens/Settings.jsx";
 import Style from "./screens/Style.jsx";
 import AddSource from "./screens/AddSource.jsx";
+import ImportProgress from "./screens/ImportProgress.jsx";
 
 /* A screen that throws shows the error and a way back instead of a blank window. */
 class Boundary extends Component {
@@ -35,6 +36,9 @@ export default function App() {
   const s = useStore();
   const [nav, setNav] = useState({ tab: "library", sourceId: null, view: "reels" });
   const [adding, setAdding] = useState(false);
+  // The lecture last added: its progress floats until closed.
+  const [importing, setImporting] = useState(null);
+  const [importMin, setImportMin] = useState(false);
   const [query, setQuery] = useState("");
 
   const go = (tab, extra = {}) => setNav((n) => ({ ...n, tab, ...extra }));
@@ -91,7 +95,8 @@ export default function App() {
         <Btn icon small className={nav.tab === "settings" ? "primary" : ""} onClick={() => go("settings")} aria-label="Settings">{I.gear}</Btn>
       </div>
       <Boundary resetKey={`${nav.tab}:${nav.sourceId}:${nav.view}`} onHome={() => go("library", { sourceId: null, view: "reels" })}>{screen}</Boundary>
-      {adding && <AddSource onClose={() => setAdding(false)} go={go} />}
+      {adding && <AddSource onClose={() => setAdding(false)} go={go} onAdded={(id) => { setImporting(id); setImportMin(false); }} />}
+      {importing && <ImportProgress s={s} sourceId={importing} min={importMin} setMin={setImportMin} onClose={() => setImporting(null)} go={go} />}
       <QueueMeter jobs={s.jobs} paused={s.settings.queuePaused} update={s.update} updating={s.updating} onOpen={() => go("queue")} />
       {s.toast && <div style={{ position: "fixed", right: 16, bottom: 40, padding: "8px 12px", borderRadius: 4, background: s.toast.kind === "err" ? "#3B1F2A" : "var(--head)", border: `1px solid ${s.toast.kind === "err" ? "var(--coral)" : s.toast.kind === "ok" ? "var(--mint)" : "var(--rule)"}`, fontSize: 13.5, maxWidth: 420, zIndex: 20 }}>{s.toast.msg}</div>}
     </div>

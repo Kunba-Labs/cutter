@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { tryAct, LANGS, useStore } from "../store.js";
+import { tryAct, LANGS, useStore, getState } from "../store.js";
 import { Btn, Field, Check, Seg, I, Confirm } from "../ui.jsx";
+import { templateSummary } from "./ImportProgress.jsx";
 
-export default function AddSource({ onClose, go }) {
+export default function AddSource({ onClose, go, onAdded }) {
   const settings = useStore((s) => s.settings);
+  const templates = useStore((s) => s.templates) || [];
+  const [templateId, setTemplateId] = useState(settings.defaultTemplate || "");
   const [mode, setMode] = useState("url");
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
@@ -33,10 +36,12 @@ export default function AddSource({ onClose, go }) {
       r = await tryAct("add_channel", channel, "Channel added. Checking it now.");
       if (r) go("inbox");
     } else {
-      const args = { language, transcriptSource, autoDetect, autoApproveScore: autoApprove ? Math.max(8, settings.autoApproveScore || 8) : 0 };
+      const args = { language, transcriptSource, autoDetect, templateId: templateId || null };
+      // A template brings its own auto-approve; without one the tick decides.
+      if (!templateId) args.autoApproveScore = autoApprove ? Math.max(8, settings.autoApproveScore || 8) : 0;
       if (mode === "url") args.url = url.trim(); else args.path = path.trim();
       r = await tryAct("add_source", args, "Added. Downloading.");
-      if (r) go("library", { sourceId: r.id, view: "reels" });
+      if (r) { go("library", { sourceId: r.id, view: "reels" }); onAdded?.(r.id); }
     }
     setBusy(false);
     if (r) onClose();
@@ -69,10 +74,12 @@ export default function AddSource({ onClose, go }) {
                 <Field label="Spoken language"><select className="input" value={language} onChange={(e) => setLanguage(e.target.value)}>{LANGS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
                 <Field label="Transcript"><select className="input" value={transcriptSource} onChange={(e) => setTS(e.target.value)}><option value="whisper">Local whisper (word timings)</option><option value="captions">YouTube captions</option></select></Field>
               </div>
+              <Field label="Template"><select className="input" value={templateId} onChange={(e) => setTemplateId(e.target.value)}><option value="">No template · reels take the last copied settings</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
+              {templateId && <span className="hint">{templateSummary(templates.find((t) => t.id === templateId) || {}, getState())}</span>}
               <div className="panel" style={{ background: "var(--bg)" }}>
                 <div className="panel-body" style={{ gap: 6 }}>
                   <Check label="Find reels with Claude when the transcript is ready" checked={autoDetect} onChange={setAutoDetect} right={`≤ ${settings.maxReelS || 40} s · complete thoughts`} />
-                  <Check label="Auto-approve score ≥ 8 and render" checked={autoApprove} onChange={setAutoApprove} right="off: hold for review" />
+                  {!templateId && <Check label="Auto-approve score ≥ 8 and render" checked={autoApprove} onChange={setAutoApprove} right="off: hold for review" />}
                 </div>
               </div>
             </>

@@ -262,8 +262,13 @@ impl Library {
         self.changed();
     }
 
-    /// A new reel takes the ticked "copy settings" keys from the template reel, if it still exists.
+    /// A new reel takes its lecture's template, else the ticked "copy settings" keys from the reel
+    /// they were set on, if it still exists.
     pub fn take_look(&self, c: &mut Candidate) {
+        if let Some(tpl) = self.get::<Source>("sources", &c.source_id).and_then(|s| s.template_id).and_then(|t| self.get::<Template>("templates", &t)) {
+            copy_look(&tpl.reel, c, LOOK_KEYS);
+            return;
+        }
         let st = self.settings();
         if let Some(from) = st.look_from.as_deref().and_then(|id| self.get::<Candidate>("candidates", id)) {
             copy_look(&from, c, &st.look_keys);
@@ -403,6 +408,7 @@ impl Library {
             "posts": self.all::<Post>("posts"),
             "posters": self.all::<Poster>("posters"),
             "tracks": self.all::<Track>("tracks"),
+            "templates": self.all::<Template>("templates"),
             "jobs": jobs,
             "undo": self.undo.lock().last().map(|(a, _)| a.clone()),
             "redo": self.redo.lock().last().map(|(a, _)| a.clone()),
@@ -447,10 +453,15 @@ impl Library {
             auto_detect: a["autoDetect"].as_bool().unwrap_or(s.auto_detect),
             auto_approve_score: a["autoApproveScore"].as_i64().unwrap_or(s.auto_approve_score),
             auto_schedule: a["autoSchedule"].as_bool().unwrap_or(false),
+            // Missing: the default template; null or "": none.
+            template_id: if a.get("templateId").is_some() { a["templateId"].as_str().filter(|t| !t.is_empty()).map(String::from) } else { s.default_template.clone() }.filter(|t| self.get::<Template>("templates", t).is_some()),
             meta,
             added_at: now(),
             ..Default::default()
         };
+        if let (Some(tpl), None) = (src.template_id.as_deref().and_then(|t| self.get::<Template>("templates", t)), a["autoApproveScore"].as_i64()) {
+            src.auto_approve_score = tpl.auto_approve_score;
+        }
         src.folder = self.out_dir().join(format!("{}-{}", slug(&src.title), &id[2..8])).display().to_string();
         self.save_source(&mut src);
         self.enqueue("download", &id, &src.title, json!({}));
@@ -786,6 +797,74 @@ impl Library {
                     changed.push(c.id);
                 }
                 // The reels changed: the UI offers to render those again.
+                json!(changed)
+            }
+            "save_template" => {
+                // This reel's look and targets under a name; the same name replaces that template.
+                let c: Candidate = self.get("candidates", &id()?).ok_or("no such candidate")?;
+                let name = s("name").map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).ok_or("name required")?;
+                let src = self.get::<Source>("sources", &c.source_id);
+                let old = self.all::<Template>("templates").into_iter().find(|t| t.name == name);
+                let mut reel = Candidate::default();
+                copy_look(&c, &mut reel, LOOK_KEYS);
+                let tpl = Template {
+                    id: old.as_ref().map(|t| t.id.clone()).unwrap_or_else(|| new_id("tp")),
+                    name,
+                    reel,
+                    auto_approve_score: a["autoApproveScore"].as_i64().or(src.map(|s| s.auto_approve_score)).unwrap_or(0),
+                    created_at: old.map(|t| t.created_at).unwrap_or_else(now),
+                };
+                self.put("templates", &tpl.id.clone(), &tpl.created_at.clone(), &tpl);
+                self.changed();
+                json!(tpl)
+            }
+            "update_template" => {
+                let id = id()?;
+                let mut tpl: Template = self.get("templates", &id).ok_or("no such template")?;
+                let mut v = serde_json::to_value(&tpl).unwrap();
+                merge(&mut v, &a["patch"]);
+                tpl = serde_json::from_value(v).map_err(|e| e.to_string())?;
+                self.put("templates", &id, &tpl.created_at.clone(), &tpl);
+                self.changed();
+                json!(tpl)
+            }
+            "delete_template" => {
+                let id = id()?;
+                let _ = self.db.lock().delete("templates", &id);
+                let mut st = self.settings();
+                if st.default_template.as_deref() == Some(id.as_str()) {
+                    st.default_template = None;
+                    self.save_settings(&st);
+                }
+                for mut src in self.all::<Source>("sources").into_iter().filter(|s| s.template_id.as_deref() == Some(id.as_str())) {
+                    src.template_id = None;
+                    self.save_source(&mut src);
+                }
+                self.changed();
+                json!(id)
+            }
+            "set_source_template" => {
+                // The lecture's template, put on its reels too (returns the ids: the UI offers to render
+                // the ones with files again). null: none, the reels keep what they have.
+                let id = id()?;
+                let mut src: Source = self.get("sources", &id).ok_or("no such source")?;
+                let tpl = match a["templateId"].as_str().filter(|t| !t.is_empty()) {
+                    Some(t) => Some(self.get::<Template>("templates", t).ok_or("no such template")?),
+                    None => None,
+                };
+                src.template_id = tpl.as_ref().map(|t| t.id.clone());
+                if let Some(t) = &tpl {
+                    src.auto_approve_score = t.auto_approve_score;
+                }
+                self.save_source(&mut src);
+                let mut changed = Vec::new();
+                if let Some(t) = &tpl {
+                    for mut c in self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == id && !c.discarded) {
+                        copy_look(&t.reel, &mut c, LOOK_KEYS);
+                        self.save_candidate(&mut c);
+                        changed.push(c.id);
+                    }
+                }
                 json!(changed)
             }
             "approve" => {
@@ -1461,6 +1540,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::open(dir.path(), None).unwrap();
+        lib.save_settings(&Settings { out_dir: dir.path().join("out").display().to_string(), parallel_jobs: 1, ..Default::default() });
+        let a = lib.dispatch("add_source", json!({ "url": "https://www.youtube.com/watch?v=a" })).unwrap()["id"].as_str().unwrap().to_string();
+        let c = lib.dispatch("add_candidate", json!({ "sourceId": a, "start": 0.0, "end": 30.0 })).unwrap()["id"].as_str().unwrap().to_string();
+        lib.dispatch("update_candidate", json!({ "id": c, "patch": { "style": "Punch", "music": "none", "targets": ["none"], "title": "kept" } })).unwrap();
+        let tpl = lib.dispatch("save_template", json!({ "id": c, "name": "Tafsir", "autoApproveScore": 8 })).unwrap()["id"].as_str().unwrap().to_string();
+        // The default template rides on a new lecture: its reels take the look and post nowhere.
+        lib.dispatch("settings", json!({ "patch": { "defaultTemplate": tpl } })).unwrap();
+        let src: Source = serde_json::from_value(lib.dispatch("add_source", json!({ "url": "https://www.youtube.com/watch?v=b" })).unwrap()).unwrap();
+        assert_eq!((src.template_id.as_deref(), src.auto_approve_score), (Some(tpl.as_str()), 8));
+        let n: Candidate = serde_json::from_value(lib.dispatch("add_candidate", json!({ "sourceId": src.id, "start": 0.0, "end": 30.0 })).unwrap()).unwrap();
+        assert_eq!((n.style.as_deref(), n.music.as_deref(), n.targets.clone(), n.title.as_str()), (Some("Punch"), Some("none"), vec!["none".to_string()], "Handpicked"));
+        // Set on an existing lecture: its reels change now.
+        let first: Candidate = lib.get("candidates", &c).unwrap();
+        lib.dispatch("update_candidate", json!({ "id": c, "patch": { "style": null, "targets": [] } })).unwrap();
+        assert_eq!(lib.dispatch("set_source_template", json!({ "id": a, "templateId": tpl })).unwrap().as_array().unwrap().len(), 1);
+        assert_eq!(lib.get::<Candidate>("candidates", &c).unwrap().style, first.style);
+        // Gone: nothing points at it any more.
+        lib.dispatch("delete_template", json!({ "id": tpl })).unwrap();
+        assert!(lib.settings().default_template.is_none() && lib.get::<Source>("sources", &a).unwrap().template_id.is_none());
+    }
+
+    #[test]
     fn add_source_and_candidates_flow() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("out");
@@ -1527,9 +1631,12 @@ mod tests {
 }
 
 /// Copy `keys` of one reel's adjustments onto another (apply_look and every new reel).
-pub fn copy_look(from: &Candidate, c: &mut Candidate, keys: &[String]) {
+/// Every key `copy_look` knows: what a template carries.
+pub const LOOK_KEYS: &[&str] = &["style", "hookStyle", "captionPct", "crop", "formats", "intro", "logo", "endCard", "music", "loudness", "targets"];
+
+pub fn copy_look<K: AsRef<str>>(from: &Candidate, c: &mut Candidate, keys: &[K]) {
     for k in keys {
-        match k.as_str() {
+        match k.as_ref() {
             // The template dropdowns hold "None" too: the on/off travels with the template.
             "style" => (c.style, c.captions_on) = (from.style.clone(), from.captions_on),
             "hookStyle" => (c.hook_style, c.title_on) = (from.hook_style.clone(), from.title_on),
@@ -1549,6 +1656,7 @@ pub fn copy_look(from: &Candidate, c: &mut Candidate, keys: &[String]) {
                 c.music_volume = from.music_volume;
             }
             "loudness" => c.loudness = from.loudness,
+            "targets" => c.targets = from.targets.clone(),
             _ => {}
         }
     }

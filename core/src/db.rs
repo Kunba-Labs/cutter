@@ -11,7 +11,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::model::Settings;
 
-pub const TABLES: &[&str] = &["sources", "channels", "inbox", "transcripts", "candidates", "renders", "posts", "posters", "targets", "jobs", "tracks", "kv"];
+pub const TABLES: &[&str] = &["sources", "channels", "inbox", "transcripts", "candidates", "renders", "posts", "posters", "targets", "jobs", "tracks", "templates", "kv"];
 
 /// A row as it was before an action changed it: (table, id, Some((json, ord)) or None when it didn't exist).
 pub type Change = (String, String, Option<(String, String)>);

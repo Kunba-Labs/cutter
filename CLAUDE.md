@@ -84,6 +84,13 @@ Data: `~/Library/Application Support/com.cuttar.desktop[.dev]/` — `cuttar.sqli
 - **New reels inherit the "Copy settings" ticks.** `settings.look_keys` (the ticks) + `look_from` (the
   reel last copied from or ticked on); `add_candidate` and the find job run `Library::take_look`.
   Caption/title "None" lives in the template dropdowns (captions_on/title_on travel with style/hookStyle).
+- **Templates** (`templates` table): a named reel look (`lib::LOOK_KEYS`, everything `copy_look` knows,
+  incl. `targets`: empty = every target, `["none"]` = post nowhere) + `auto_approve_score`. Saved from a reel
+  (`save_template`, same name replaces). `source.template_id` beats `look_from` in `take_look`;
+  `settings.default_template` goes on every new lecture; `set_source_template` restyles its reels now.
+  The add sheet picks one; the import popup (`ImportProgress.jsx`, minimises into the status bar) shows the
+  stages, the language heard (saved as soon as the sample says it) with override, and the template.
+  `pipeline::set_stage` takes the user-editable fields from the current row: a job's copy is stale.
 - **Panels resize** by the `Grip` in the gap (`ui.jsx useSize`, remembered in localStorage per key).
 - **Nothing posts without a confirm** unless a channel says `auto_schedule`. YouTube uploads
   as private with `publishAt`; TikTok/Meta are not linked (need approved apps): a confirmed post

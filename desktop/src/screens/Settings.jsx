@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useStore, tryAct, fileUrl, fmtLong, FORMATS, TRANSITIONS, LOUDNESS, levelDb } from "../store.js";
 import { Panel, Btn, Check, Text, Seg, Dot, Brand, Confirm, I, useSize, Grip } from "../ui.jsx";
+import { templateSummary } from "./ImportProgress.jsx";
 
-const SECTIONS = [["general", "General"], ["engines", "Engines"], ["channels", "Channels"], ["captions", "Captions"], ["music", "Music"], ["posters", "Posters"], ["mcp", "Claude and terminal"]];
+const SECTIONS = [["general", "General"], ["engines", "Engines"], ["channels", "Channels"], ["templates", "Templates"], ["captions", "Captions"], ["music", "Music"], ["posters", "Posters"], ["mcp", "Claude and terminal"]];
 
 export default function Settings({ go }) {
   const [sz0, setsz0] = useSize("settings.left", 200);
@@ -103,6 +104,21 @@ export default function Settings({ go }) {
               </>}
             </Panel>
           </>
+        )}
+        {sec === "templates" && (
+          <Panel title="Templates">
+            <span className="hint">A template is a reel's whole look plus where its reels post. Save one from any reel (Reels › the bottom of the inspector). A lecture with a template gives it to every reel found in it.</span>
+            <Row label="New lectures get"><select className="input" style={W} value={st.defaultTemplate || ""} onChange={(e) => patch({ defaultTemplate: e.target.value || null })}><option value="">No template</option>{(s.templates || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Row>
+            {(s.templates || []).map((t) => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+                <Text value={t.name} onCommit={(v) => v.trim() && tryAct("update_template", { id: t.id, patch: { name: v.trim() } })} style={{ width: 150, height: 24 }} />
+                <span className="muted ell grow">{templateSummary(t, s)}</span>
+                <span className="muted">approve at</span><input className="input num" type="number" min="0" max="10" style={{ width: 52 }} value={t.autoApproveScore || 0} onChange={(e) => tryAct("update_template", { id: t.id, patch: { autoApproveScore: +e.target.value } })} title="Reels scoring this or more are approved and rendered on their own. 0: hold for review." />
+                <a href="#" className="muted" onClick={(e) => { e.preventDefault(); tryAct("delete_template", { id: t.id }, `Removed ${t.name}`); }}>remove</a>
+              </div>
+            ))}
+            {!(s.templates || []).length && <span className="hint">No templates yet.</span>}
+          </Panel>
         )}
         {sec === "music" && <Music s={s} st={st} patch={patch} />}
         {sec === "captions" && (

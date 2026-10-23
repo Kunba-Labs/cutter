@@ -206,7 +206,12 @@ pub fn make_cover(lib: &Library, c: &Candidate, format: &str) -> Result<PathBuf,
     Ok(out)
 }
 
+/// A job's copy of the lecture is as old as the job: what the person changed meanwhile (the import
+/// popup sets template and language while it downloads) is taken from the row as it is now.
 fn set_stage(lib: &Library, src: &mut Source, stage: &str, error: Option<String>) {
+    if let Some(now) = lib.get::<Source>("sources", &src.id) {
+        (src.template_id, src.title, src.auto_approve_score, src.auto_detect, src.lang_override) = (now.template_id, now.title, now.auto_approve_score, now.auto_detect, now.lang_override);
+    }
     src.stage = stage.into();
     src.error = error;
     lib.save_source(src);
@@ -368,6 +373,11 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
             }
             if let Some(l) = &lang {
                 lib.job_log(&jid, &format!("language from the middle of the lecture: {l}"));
+                // Shown (and overridable) while the transcript is still running.
+                if let Some(mut now) = lib.get::<Source>("sources", &src.id) {
+                    now.language = Some(l.clone());
+                    lib.save_source(&mut now);
+                }
             }
         }
         let attempt = |model: &str| whisper::transcribe(&video, Path::new(&src.folder), model, lang.as_deref(), &s.glossary, src.duration.unwrap_or(0.0), |p, m| lib.job_progress(&jid, p, &format!("{model} · {m}")), |pid| lib.register_child(&jid, pid));

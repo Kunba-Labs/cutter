@@ -520,8 +520,9 @@ impl Library {
                 let src: Source = self.get("sources", &id).ok_or("no such source")?;
                 let reel_ids: Vec<String> = self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == id).map(|c| c.id).collect();
                 // A planned post whose time passed without a confirm never goes out: it goes with the lecture.
-                let now = now();
-                let (dead, live): (Vec<Post>, Vec<Post>) = self.all::<Post>("posts").into_iter().filter(|p| p.candidate_id.as_ref().is_some_and(|c| reel_ids.contains(c)) && matches!(p.status.as_str(), "planned" | "confirmed" | "posting")).partition(|p| p.status == "planned" && p.scheduled_at < now);
+                // Parsed: a scheduledAt with an offset does not sort as text.
+                let past = |at: &str| chrono::DateTime::parse_from_rfc3339(at).is_ok_and(|t| t < chrono::Utc::now());
+                let (dead, live): (Vec<Post>, Vec<Post>) = self.all::<Post>("posts").into_iter().filter(|p| p.candidate_id.as_ref().is_some_and(|c| reel_ids.contains(c)) && matches!(p.status.as_str(), "planned" | "confirmed" | "posting")).partition(|p| p.status == "planned" && past(&p.scheduled_at));
                 if !live.is_empty() {
                     return Err(format!("{} of its reels are still scheduled; unschedule them first", live.len()));
                 }
@@ -817,10 +818,15 @@ impl Library {
                     id: old.as_ref().map(|t| t.id.clone()).unwrap_or_else(|| new_id("tp")),
                     name,
                     reel,
-                    auto_approve_score: a["autoApproveScore"].as_i64().or(src.map(|s| s.auto_approve_score)).unwrap_or(0),
+                    // Replacing one keeps its threshold unless a new one is given.
+                    auto_approve_score: a["autoApproveScore"].as_i64().or(old.as_ref().map(|t| t.auto_approve_score)).or(src.map(|s| s.auto_approve_score)).unwrap_or(0),
                     created_at: old.map(|t| t.created_at).unwrap_or_else(now),
                 };
                 self.put("templates", &tpl.id.clone(), &tpl.created_at.clone(), &tpl);
+                for mut src in self.all::<Source>("sources").into_iter().filter(|s| s.template_id.as_deref() == Some(tpl.id.as_str()) && s.auto_approve_score != tpl.auto_approve_score) {
+                    src.auto_approve_score = tpl.auto_approve_score;
+                    self.save_source(&mut src);
+                }
                 self.changed();
                 json!(tpl)
             }
@@ -842,6 +848,11 @@ impl Library {
                     return Err(format!("There is already a template called {}", tpl.name));
                 }
                 self.put("templates", &id, &tpl.created_at.clone(), &tpl);
+                // Lectures on this template approve by it: a new threshold reaches them too.
+                for mut src in self.all::<Source>("sources").into_iter().filter(|s| s.template_id.as_deref() == Some(id.as_str()) && s.auto_approve_score != tpl.auto_approve_score) {
+                    src.auto_approve_score = tpl.auto_approve_score;
+                    self.save_source(&mut src);
+                }
                 self.changed();
                 json!(tpl)
             }
@@ -1598,6 +1609,10 @@ mod tests {
         assert_eq!((src.template_id.as_deref(), src.auto_approve_score), (Some(tpl.as_str()), 8));
         let n: Candidate = serde_json::from_value(lib.dispatch("add_candidate", json!({ "sourceId": src.id, "start": 0.0, "end": 30.0 })).unwrap()).unwrap();
         assert_eq!((n.style.as_deref(), n.music.as_deref(), n.targets.clone(), n.title.as_str()), (Some("Punch"), Some("none"), vec!["none".to_string()], "Handpicked"));
+        // Saved again without a score: the template keeps 8. A new score reaches its lectures.
+        assert_eq!(lib.dispatch("save_template", json!({ "id": c, "name": "Tafsir" })).unwrap()["autoApproveScore"], 8);
+        lib.dispatch("update_template", json!({ "id": tpl, "patch": { "autoApproveScore": 6 } })).unwrap();
+        assert_eq!(lib.get::<Source>("sources", &src.id).unwrap().auto_approve_score, 6);
         // Set on an existing lecture: its reels change now.
         let first: Candidate = lib.get("candidates", &c).unwrap();
         lib.dispatch("update_candidate", json!({ "id": c, "patch": { "style": null, "targets": [] } })).unwrap();

@@ -26,7 +26,12 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
   // Only the import's own jobs: renders and covers of its reels come after "ready".
   const jobs = s.jobs.filter((j) => j.refId === src.id && j.kind in JOB_STEP && (j.status === "running" || j.status === "queued"));
   const job = jobs.find((j) => j.status === "running") || jobs[0];
-  const reels = s.candidates.filter((c) => c.sourceId === src.id && !c.discarded).length;
+  const mine = s.candidates.filter((c) => c.sourceId === src.id && !c.discarded);
+  const reels = mine.length;
+  // After "ready": what its reels are doing, from the reels and their render jobs.
+  const approved = mine.filter((c) => c.approved).length;
+  const rendering = new Set(s.jobs.filter((j) => j.kind === "render" && (j.status === "running" || j.status === "queued") && mine.some((c) => c.id === j.refId)).map((j) => j.refId)).size;
+  const after = [approved && `${approved} approved`, rendering && `${rendering} rendering`].filter(Boolean).join(", ");
   // Without "find reels" a transcript is the end of the road.
   const failed = src.stage === "failed";
   const lastFail = failed && s.jobs.filter((j) => j.refId === src.id && j.status === "failed" && j.kind in JOB_STEP).sort((a, b) => (a.finishedAt < b.finishedAt ? 1 : -1))[0];
@@ -50,7 +55,7 @@ export default function ImportProgress({ s, sourceId, min, setMin, onClose, go }
           {STEPS.map((l, i) => <span key={l} className={i < step || (ready && i === 3) ? "mint" : i === step ? (failed ? "coral" : "pink") : "muted"}><Dot c={i < step || ready ? "mint" : i === step ? (failed ? "coral" : "pink") : ""} />{l}</span>)}
         </div>
         <Bar v={pct} mint={ready} />
-        <span className={`ell ${failed ? "coral" : "muted"}`} style={{ fontSize: 13 }}>{failed ? src.error : ready ? `${reels} reel${reels === 1 ? "" : "s"} found${src.autoApproveScore > 0 ? `, scoring ${src.autoApproveScore}+ approved and rendering` : ""}.` : job?.message || job?.label || "Waiting in the queue"}</span>
+        <span className={`ell ${failed ? "coral" : "muted"}`} style={{ fontSize: 13 }}>{failed ? src.error : ready ? `${reels} reel${reels === 1 ? "" : "s"} found${after ? `: ${after}` : ""}.` : job?.message || job?.label || "Waiting in the queue"}</span>
         <div className="grid2">
           <Field label={src.langOverride ? "Language · set by you" : heard ? `Language · heard ${heard}` : "Language · not heard yet"}>
             <select className="input" value={src.langOverride || "auto"} onChange={(e) => tryAct("set_language", { id: src.id, language: e.target.value }, src.videoPath ? "Transcribing again" : "Language set")}>

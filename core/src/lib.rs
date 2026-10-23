@@ -515,12 +515,18 @@ impl Library {
             "remove_source" => {
                 // A lecture out of the library: its reels, renders and transcript, and its queued jobs.
                 // `files: true` also deletes its folder, only when that sits inside the output folder.
-                // Refused while one of its reels is still waiting to be posted.
+                // Refused while one of its reels can still be posted.
                 let id = id()?;
                 let src: Source = self.get("sources", &id).ok_or("no such source")?;
                 let reel_ids: Vec<String> = self.all::<Candidate>("candidates").into_iter().filter(|c| c.source_id == id).map(|c| c.id).collect();
-                if self.all::<Post>("posts").iter().any(|p| p.candidate_id.as_ref().is_some_and(|c| reel_ids.contains(c)) && matches!(p.status.as_str(), "planned" | "confirmed" | "posting")) {
-                    return Err("some of its reels are still scheduled; unschedule them first".into());
+                // A planned post whose time passed without a confirm never goes out: it goes with the lecture.
+                let now = now();
+                let (dead, live): (Vec<Post>, Vec<Post>) = self.all::<Post>("posts").into_iter().filter(|p| p.candidate_id.as_ref().is_some_and(|c| reel_ids.contains(c)) && matches!(p.status.as_str(), "planned" | "confirmed" | "posting")).partition(|p| p.status == "planned" && p.scheduled_at < now);
+                if !live.is_empty() {
+                    return Err(format!("{} of its reels are still scheduled; unschedule them first", live.len()));
+                }
+                for p in &dead {
+                    let _ = self.db.lock().delete("posts", &p.id);
                 }
                 for j in self.all::<Job>("jobs").into_iter().filter(|j| (j.ref_id == id || reel_ids.contains(&j.ref_id)) && matches!(j.status.as_str(), "queued" | "running")) {
                     self.cancel_job(&j.id);
@@ -1552,6 +1558,24 @@ pub fn merge(base: &mut Value, patch: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remove_with_expired_posts() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::open(dir.path(), None).unwrap();
+        lib.save_settings(&Settings { out_dir: dir.path().join("out").display().to_string(), parallel_jobs: 1, ..Default::default() });
+        let sid = lib.dispatch("add_source", json!({ "url": "https://www.youtube.com/watch?v=a" })).unwrap()["id"].as_str().unwrap().to_string();
+        let cid = lib.dispatch("add_candidate", json!({ "sourceId": sid, "start": 0.0, "end": 30.0 })).unwrap()["id"].as_str().unwrap().to_string();
+        let post = |id: &str, at: &str| lib.put("posts", id, at, &Post { id: id.into(), candidate_id: Some(cid.clone()), status: "planned".into(), scheduled_at: at.into(), ..Default::default() });
+        // Planned ahead: it can still go out, so the lecture stays.
+        post("p-ahead", "2999-01-01T00:00:00.000Z");
+        assert!(lib.dispatch("remove_source", json!({ "id": sid })).is_err());
+        // Planned in the past and never confirmed: it goes with the lecture.
+        lib.put("posts", "p-ahead", "", &Post { id: "p-ahead".into(), candidate_id: Some(cid.clone()), status: "posted".into(), ..Default::default() });
+        post("p-old", "2020-01-01T00:00:00.000Z");
+        lib.dispatch("remove_source", json!({ "id": sid })).unwrap();
+        assert!(lib.get::<Post>("posts", "p-old").is_none() && lib.get::<Post>("posts", "p-ahead").is_some());
+    }
 
     #[test]
     fn templates() {

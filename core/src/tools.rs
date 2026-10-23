@@ -42,8 +42,23 @@ fn find(bin: &str) -> Option<String> {
     which::which(bin).ok().map(|p| p.display().to_string())
 }
 
+/// Every snapshot asks, so a yes is kept for the run: starting ffmpeg can stall for minutes while
+/// macOS checks its dylibs (first launch after an install), and the library would not open.
+/// A no is asked again, so installing ffmpeg-full shows without a restart.
+fn ffmpeg_ass() -> bool {
+    static YES: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if YES.get().is_some() {
+        return true;
+    }
+    let ok = Command::new(ffmpeg_bin()).args(["-hide_banner", "-filters"]).output().map(|o| String::from_utf8_lossy(&o.stdout).lines().any(|l| l.split_whitespace().nth(1) == Some("ass"))).unwrap_or(false);
+    if ok {
+        let _ = YES.set(());
+    }
+    ok
+}
+
 pub fn detect(claude_bin: &str) -> Tools {
-    let ffmpeg_ass = Command::new(ffmpeg_bin()).args(["-hide_banner", "-filters"]).output().map(|o| String::from_utf8_lossy(&o.stdout).lines().any(|l| l.split_whitespace().nth(1) == Some("ass"))).unwrap_or(false);
+    let ffmpeg_ass = ffmpeg_ass();
     Tools {
         ffmpeg: if ffmpeg_bin() == "ffmpeg" { find("ffmpeg") } else { Some(ffmpeg_bin()) },
         ffmpeg_ass,

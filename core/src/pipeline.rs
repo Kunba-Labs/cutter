@@ -362,7 +362,10 @@ fn transcribe(lib: &Library, job: &Job) -> Result<Value, String> {
         let jid = job.id.clone();
         if lang.is_none() {
             lib.job_progress(&jid, 0.0, "listening for the language");
-            lang = whisper::detect_language(&video, Path::new(&src.folder), &s.whisper_model, src.duration.unwrap_or(0.0));
+            lang = whisper::detect_language(&video, Path::new(&src.folder), &s.whisper_model, src.duration.unwrap_or(0.0), |pid| lib.register_child(&jid, pid));
+            if lib.cancelled(&jid) {
+                return Err("cancelled".into());
+            }
             if let Some(l) = &lang {
                 lib.job_log(&jid, &format!("language from the middle of the lecture: {l}"));
             }

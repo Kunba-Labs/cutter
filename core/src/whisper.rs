@@ -67,9 +67,13 @@ pub fn transcribe(video: &Path, dir: &Path, model: &str, language: Option<&str>,
 /// Whisper decides the language on the first 30 s, and a lecture opens with Arabic (khutbat
 /// al-haja, Qur'an) whatever it is taught in. So it listens to 3 × 10 s from the body instead:
 /// at 30, 50 and 70 % of the lecture. None for a short file (whisper's own guess is then fine) or on
-/// any error.
-// ponytail: not registered as a child, a cancel waits the few seconds this takes.
-pub fn detect_language(video: &Path, dir: &Path, model: &str, duration: f64) -> Option<String> {
+/// any error. Both processes go to `on_spawn`, so a cancel stops them.
+pub fn detect_language(video: &Path, dir: &Path, model: &str, duration: f64, on_spawn: impl Fn(u32)) -> Option<String> {
+    let run = |cmd: &mut Command| -> bool {
+        let Ok(child) = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else { return false };
+        on_spawn(child.id());
+        child.wait_with_output().is_ok_and(|o| o.status.success())
+    };
     if duration < 120.0 {
         return None;
     }
@@ -80,10 +84,13 @@ pub fn detect_language(video: &Path, dir: &Path, model: &str, duration: f64) -> 
         ff.args(["-ss", &format!("{:.1}", duration * f), "-t", "10", "-i"]).arg(video);
     }
     ff.args(["-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1", "-ar", "16000", "-ac", "1"]).arg(&wav);
-    crate::tools::run(&mut ff).ok()?;
-    let out = Command::new("mlx_whisper").arg(&wav).args(["--model", model, "--output-dir"]).arg(dir).args(["--output-name", "lang-sample", "--output-format", "json"]).stdin(Stdio::null()).output();
+    if !run(&mut ff) {
+        let _ = std::fs::remove_file(&wav);
+        return None;
+    }
+    let ok = run(Command::new("mlx_whisper").arg(&wav).args(["--model", model, "--output-dir"]).arg(dir).args(["--output-name", "lang-sample", "--output-format", "json"]));
     let json = dir.join("lang-sample.json");
-    let lang = out.ok().filter(|o| o.status.success()).and_then(|_| std::fs::read_to_string(&json).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["language"].as_str().map(str::to_string)).filter(|l| !l.is_empty());
+    let lang = Some(ok).filter(|ok| *ok).and_then(|_| std::fs::read_to_string(&json).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["language"].as_str().map(str::to_string)).filter(|l| !l.is_empty());
     let _ = std::fs::remove_file(&wav);
     let _ = std::fs::remove_file(&json);
     lang

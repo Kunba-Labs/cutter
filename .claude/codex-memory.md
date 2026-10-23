@@ -22,4 +22,5 @@
 - Core endpoint defaults are port 47251 for production and 47252 for development; `CUTTAR_PORT` overrides them. `CUTTAR_DATA_DIR` overrides the data directory.
 - The CLI in `cli/src/main.rs` selects development defaults whenever `CUTTAR_DEV` is present and dispatches actions over authenticated loopback HTTP.
 - The `jobs` dispatch action returns all jobs; the UI snapshot limits job history to 300 entries. Active job statuses are `queued` and `running`.
+- Job cancellation in `core/src/lib.rs` records a cancellation flag and sends SIGTERM to the registered child PID. A successful job result is marked `done` even when the cancellation flag is set.
 - The Cargo workspace contains `core`, `cli`, and `desktop/src-tauri`. Tauri runs `yarn build` before release compilation and embeds `desktop/dist`.

@@ -55,8 +55,9 @@ Then print one line per variant: "PALETTE <n>: <palette and style in a few words
 
 /// Claude Code's own view of the Higgsfield MCP. Without a login `claude -p` just answers
 /// that it has no image tool, so say so before spending minutes on it.
-fn higgsfield_ready() -> Result<(), String> {
-    let out = std::process::Command::new("claude").args(["mcp", "get", "higgsfield"]).output().map_err(|e| format!("can't run claude: {e}"))?;
+fn higgsfield_ready(s: &Settings) -> Result<(), String> {
+    // Same binary and directory as brain::ask, so a project-scoped MCP setup agrees.
+    let out = std::process::Command::new(&s.claude_bin).args(["mcp", "get", "higgsfield"]).current_dir(crate::brain::scratch()).output().map_err(|e| format!("can't run claude: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     let status = text.lines().find_map(|l| l.trim().strip_prefix("Status:")).map(str::trim);
     match status {
@@ -68,8 +69,8 @@ fn higgsfield_ready() -> Result<(), String> {
 }
 
 pub fn generate(lib: &Library, p: &Poster, on_spawn: impl FnOnce(u32)) -> Result<(Vec<PathBuf>, Vec<String>), String> {
-    higgsfield_ready()?;
     let s = lib.settings();
+    higgsfield_ready(&s)?;
     let dir = PathBuf::from(&p.folder);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let prompt = generation_prompt(p, &s, &dir);
@@ -157,8 +158,8 @@ mod tests {
 
 /// End cards for the reels, drawn in this poster's style. Returns aspect key → file.
 pub fn generate_end_cards(lib: &Library, p: &Poster, on_spawn: impl FnOnce(u32)) -> Result<std::collections::HashMap<&'static str, PathBuf>, String> {
-    higgsfield_ready()?;
     let s = lib.settings();
+    higgsfield_ready(&s)?;
     let dir = PathBuf::from(&p.folder);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let reference = p.chosen.as_deref().map(|c| format!("Match the palette, typography and ornament of the poster at {c} (upload it with media_upload and pass it as a style reference).")).unwrap_or_default();

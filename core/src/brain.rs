@@ -133,7 +133,7 @@ pub fn parse_frame(text: &str) -> Option<usize> {
 }
 
 /// An empty folder the brain runs in: Claude Code scans its cwd on start, and it must find nothing worth a TCC prompt.
-fn scratch() -> std::path::PathBuf {
+pub(crate) fn scratch() -> std::path::PathBuf {
     let d = std::env::temp_dir().join("cuttar-brain");
     let _ = std::fs::create_dir_all(&d);
     d

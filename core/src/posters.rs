@@ -58,11 +58,14 @@ pub fn generate(lib: &Library, p: &Poster, on_spawn: impl FnOnce(u32)) -> Result
     let dir = PathBuf::from(&p.folder);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let prompt = generation_prompt(p, &s, &dir);
+    // Only files this run wrote count: an earlier run's variant-1.png is not a new variant.
+    let started = std::time::SystemTime::now();
+    let fresh = |f: &Path| f.metadata().and_then(|m| m.modified()).map(|t| t >= started).unwrap_or(false);
     let text = crate::brain::ask(&Settings { brain: "claude".into(), ..s.clone() }, &prompt, Duration::from_secs(20 * 60), on_spawn)?;
-    let mut files: Vec<PathBuf> = (1..=3).map(|i| dir.join(format!("variant-{i}.png"))).filter(|f| f.exists()).collect();
+    let mut files: Vec<PathBuf> = (1..=3).map(|i| dir.join(format!("variant-{i}.png"))).filter(|f| fresh(f)).collect();
     if files.is_empty() {
         // Claude sometimes names them differently; take any fresh png in the folder.
-        files = std::fs::read_dir(&dir).map_err(|e| e.to_string())?.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map(|x| x == "png").unwrap_or(false) && !p.file_name().unwrap().to_string_lossy().contains("-qr")).collect();
+        files = std::fs::read_dir(&dir).map_err(|e| e.to_string())?.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map(|x| x == "png").unwrap_or(false) && !p.file_name().unwrap().to_string_lossy().contains("-qr") && fresh(p)).collect();
     }
     if files.is_empty() {
         return Err(format!("Claude produced no images. Its answer: {}", text.chars().take(600).collect::<String>()));
